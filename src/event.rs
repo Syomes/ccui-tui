@@ -1,16 +1,23 @@
-use crate::component::Component;
+use crate::style::Style;
+use crate::widget::Widget;
 
 /// Messages sent from external to the internal render loop.
 pub enum UiMessage {
-    AddComponent {
+    AddWidget {
         parent_id: String,
         id: String,
-        component: Box<dyn Component>,
+        widget: Box<dyn Widget>,
+        style: Style,
     },
-    RemoveComponent(String),
-    UpdateComponent {
+    AddContainer {
+        parent_id: String,
         id: String,
-        component: Box<dyn Component>,
+        style: Style,
+    },
+    RemoveWidget(String),
+    UpdateWidget {
+        id: String,
+        widget: Box<dyn Widget>,
     },
 }
 

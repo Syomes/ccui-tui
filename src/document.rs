@@ -1,18 +1,19 @@
 use crossterm::{
-    terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
+    terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 use tokio::sync::mpsc;
 
-use crate::component::Component;
 use crate::event::{Event, UiMessage};
 use crate::internal::RenderLoop;
+use crate::style::Style;
+use crate::widget::Widget;
 
 /// Handle to the UI system.
 ///
 /// `Document` serves as the event bus for the UI, providing:
-/// - Methods to send commands to the internal render loop (`add_component`, `remove_component`, `update_component`)
+/// - Methods to send commands to the internal render loop (`add_widget`, `remove_widget`, `update_widget`)
 /// - A receiver to get terminal events from the internal loop (`event_receiver`)
 ///
 /// When `Document` is dropped, the terminal is automatically restored to its original state.
@@ -30,37 +31,69 @@ impl Drop for Document {
 }
 
 impl Document {
-    pub async fn add_component<C: Component + 'static>(
+    pub async fn add_widget<C: Widget + 'static>(
         &self,
         parent_id: String,
         id: String,
-        component: C,
+        widget: C,
     ) -> Result<(), mpsc::error::SendError<UiMessage>> {
+        let style = widget.node_style_hint().unwrap_or_default();
         self.ui_tx
-            .send(UiMessage::AddComponent {
+            .send(UiMessage::AddWidget {
                 parent_id,
                 id,
-                component: Box::new(component),
+                widget: Box::new(widget),
+                style,
             })
             .await
     }
 
-    pub async fn remove_component(
+    pub async fn add_widget_with_style<C: Widget + 'static>(
         &self,
+        parent_id: String,
         id: String,
+        widget: C,
+        style: Style,
     ) -> Result<(), mpsc::error::SendError<UiMessage>> {
         self.ui_tx
-            .send(UiMessage::RemoveComponent(id))
+            .send(UiMessage::AddWidget {
+                parent_id,
+                id,
+                widget: Box::new(widget),
+                style,
+            })
             .await
     }
 
-    pub async fn update_component<C: Component + 'static>(
+    pub async fn add_container(
         &self,
+        parent_id: String,
         id: String,
-        component: C,
+        style: Style,
     ) -> Result<(), mpsc::error::SendError<UiMessage>> {
         self.ui_tx
-            .send(UiMessage::UpdateComponent { id, component: Box::new(component) })
+            .send(UiMessage::AddContainer {
+                parent_id,
+                id,
+                style,
+            })
+            .await
+    }
+
+    pub async fn remove_widget(&self, id: String) -> Result<(), mpsc::error::SendError<UiMessage>> {
+        self.ui_tx.send(UiMessage::RemoveWidget(id)).await
+    }
+
+    pub async fn update_widget<C: Widget + 'static>(
+        &self,
+        id: String,
+        widget: C,
+    ) -> Result<(), mpsc::error::SendError<UiMessage>> {
+        self.ui_tx
+            .send(UiMessage::UpdateWidget {
+                id,
+                widget: Box::new(widget),
+            })
             .await
     }
 

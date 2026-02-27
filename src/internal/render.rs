@@ -27,18 +27,26 @@ impl RenderLoop {
             // Handle UI commands
             while let Ok(msg) = ui_rx.try_recv() {
                 match msg {
-                    UiMessage::AddComponent {
+                    UiMessage::AddWidget {
                         parent_id,
                         id,
-                        component,
+                        widget,
+                        style,
                     } => {
-                        state.root.add_child_box(&parent_id, id, component);
+                        state.root.add_widget_box(&parent_id, id, widget, style);
                     }
-                    UiMessage::RemoveComponent(id) => {
+                    UiMessage::AddContainer {
+                        parent_id,
+                        id,
+                        style,
+                    } => {
+                        state.root.add_container(&parent_id, id, style);
+                    }
+                    UiMessage::RemoveWidget(id) => {
                         state.root.remove_child(&id);
                     }
-                    UiMessage::UpdateComponent { id, component } => {
-                        state.root.update_child_box(&id, component);
+                    UiMessage::UpdateWidget { id, widget } => {
+                        state.root.update_widget_box(&id, widget);
                     }
                 }
             }
@@ -66,7 +74,7 @@ impl RenderLoop {
                 // First calculate layout based on screen size
                 let screen_area = f.area();
                 state.root.layout(screen_area);
-                
+
                 // Then render
                 state.root.render(f);
             });
