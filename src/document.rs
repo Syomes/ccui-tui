@@ -10,10 +10,34 @@ use crate::internal::RenderLoop;
 use crate::style::Style;
 use crate::widget::Widget;
 
+/// A container that can hold widgets and other containers.
+pub trait Container {
+    fn add_container(
+        &self,
+        id: impl Into<String>,
+        style: Style,
+    ) -> Result<ContainerHandle, mpsc::error::TrySendError<UiMessage>>;
+
+    fn add_widget<C: Widget + 'static>(
+        &self,
+        id: impl Into<String>,
+        widget: C,
+    ) -> Result<WidgetHandle, mpsc::error::TrySendError<UiMessage>>;
+}
+
+/// Operations available on a widget handle.
+pub trait WidgetOps {
+    fn update<C: Widget + 'static>(
+        &self,
+        widget: C,
+    ) -> Result<(), mpsc::error::TrySendError<UiMessage>>;
+
+    fn remove(self) -> Result<(), mpsc::error::TrySendError<UiMessage>>;
+}
+
 /// Handle to the UI system.
 ///
 /// `Document` serves as the event bus for the UI, providing:
-/// - Methods to send commands to the internal render loop (`add_widget`, `remove_widget`, `update_widget`)
 /// - A receiver to get terminal events from the internal loop (`event_receiver`)
 ///
 /// When `Document` is dropped, the terminal is automatically restored to its original state.
@@ -30,75 +54,163 @@ impl Drop for Document {
     }
 }
 
-impl Document {
-    pub async fn add_widget<C: Widget + 'static>(
+impl Container for Document {
+    fn add_container(
         &self,
-        parent_id: String,
-        id: String,
+        id: impl Into<String>,
+        style: Style,
+    ) -> Result<ContainerHandle, mpsc::error::TrySendError<UiMessage>> {
+        let id = id.into();
+        self.ui_tx.try_send(UiMessage::AddContainer {
+            parent_id: "root".to_string(),
+            id: id.clone(),
+            style,
+        })?;
+        Ok(ContainerHandle {
+            ui_tx: self.ui_tx.clone(),
+            id,
+        })
+    }
+
+    fn add_widget<C: Widget + 'static>(
+        &self,
+        id: impl Into<String>,
         widget: C,
-    ) -> Result<(), mpsc::error::SendError<UiMessage>> {
+    ) -> Result<WidgetHandle, mpsc::error::TrySendError<UiMessage>> {
+        let id = id.into();
         let style = widget.node_style_hint().unwrap_or_default();
-        self.ui_tx
-            .send(UiMessage::AddWidget {
-                parent_id,
-                id,
-                widget: Box::new(widget),
-                style,
-            })
-            .await
+        self.ui_tx.try_send(UiMessage::AddWidget {
+            parent_id: "root".to_string(),
+            id: id.clone(),
+            widget: Box::new(widget),
+            style,
+        })?;
+        Ok(WidgetHandle {
+            ui_tx: self.ui_tx.clone(),
+            id,
+        })
+    }
+}
+
+impl Document {
+    pub fn get_container(&self, id: impl Into<String>) -> ContainerHandle {
+        ContainerHandle {
+            ui_tx: self.ui_tx.clone(),
+            id: id.into(),
+        }
     }
 
-    pub async fn add_widget_with_style<C: Widget + 'static>(
+    pub fn get_widget(&self, id: impl Into<String>) -> WidgetHandle {
+        WidgetHandle {
+            ui_tx: self.ui_tx.clone(),
+            id: id.into(),
+        }
+    }
+
+    pub fn update_widget<C: Widget + 'static>(
         &self,
-        parent_id: String,
-        id: String,
+        id: impl Into<String>,
         widget: C,
-        style: Style,
-    ) -> Result<(), mpsc::error::SendError<UiMessage>> {
-        self.ui_tx
-            .send(UiMessage::AddWidget {
-                parent_id,
-                id,
-                widget: Box::new(widget),
-                style,
-            })
-            .await
+    ) -> Result<(), mpsc::error::TrySendError<UiMessage>> {
+        self.ui_tx.try_send(UiMessage::UpdateWidget {
+            id: id.into(),
+            widget: Box::new(widget),
+        })?;
+        Ok(())
     }
 
-    pub async fn add_container(
+    pub fn remove_widget(
         &self,
-        parent_id: String,
-        id: String,
-        style: Style,
-    ) -> Result<(), mpsc::error::SendError<UiMessage>> {
-        self.ui_tx
-            .send(UiMessage::AddContainer {
-                parent_id,
-                id,
-                style,
-            })
-            .await
-    }
-
-    pub async fn remove_widget(&self, id: String) -> Result<(), mpsc::error::SendError<UiMessage>> {
-        self.ui_tx.send(UiMessage::RemoveWidget(id)).await
-    }
-
-    pub async fn update_widget<C: Widget + 'static>(
-        &self,
-        id: String,
-        widget: C,
-    ) -> Result<(), mpsc::error::SendError<UiMessage>> {
-        self.ui_tx
-            .send(UiMessage::UpdateWidget {
-                id,
-                widget: Box::new(widget),
-            })
-            .await
+        id: impl Into<String>,
+    ) -> Result<(), mpsc::error::TrySendError<UiMessage>> {
+        self.ui_tx.try_send(UiMessage::RemoveWidget(id.into()))?;
+        Ok(())
     }
 
     pub fn event_receiver(&mut self) -> &mut mpsc::Receiver<Event> {
         &mut self.event_rx
+    }
+}
+
+/// Handle to a container.
+#[derive(Clone)]
+pub struct ContainerHandle {
+    ui_tx: mpsc::Sender<UiMessage>,
+    id: String,
+}
+
+impl ContainerHandle {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl Container for ContainerHandle {
+    fn add_container(
+        &self,
+        id: impl Into<String>,
+        style: Style,
+    ) -> Result<ContainerHandle, mpsc::error::TrySendError<UiMessage>> {
+        let id = id.into();
+        self.ui_tx.try_send(UiMessage::AddContainer {
+            parent_id: self.id.clone(),
+            id: id.clone(),
+            style,
+        })?;
+        Ok(ContainerHandle {
+            ui_tx: self.ui_tx.clone(),
+            id,
+        })
+    }
+
+    fn add_widget<C: Widget + 'static>(
+        &self,
+        id: impl Into<String>,
+        widget: C,
+    ) -> Result<WidgetHandle, mpsc::error::TrySendError<UiMessage>> {
+        let id = id.into();
+        let style = widget.node_style_hint().unwrap_or_default();
+        self.ui_tx.try_send(UiMessage::AddWidget {
+            parent_id: self.id.clone(),
+            id: id.clone(),
+            widget: Box::new(widget),
+            style,
+        })?;
+        Ok(WidgetHandle {
+            ui_tx: self.ui_tx.clone(),
+            id,
+        })
+    }
+}
+
+/// Handle to a widget.
+#[derive(Clone)]
+pub struct WidgetHandle {
+    ui_tx: mpsc::Sender<UiMessage>,
+    id: String,
+}
+
+impl WidgetHandle {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl WidgetOps for WidgetHandle {
+    fn update<C: Widget + 'static>(
+        &self,
+        widget: C,
+    ) -> Result<(), mpsc::error::TrySendError<UiMessage>> {
+        self.ui_tx.try_send(UiMessage::UpdateWidget {
+            id: self.id.clone(),
+            widget: Box::new(widget),
+        })?;
+        Ok(())
+    }
+
+    fn remove(self) -> Result<(), mpsc::error::TrySendError<UiMessage>> {
+        self.ui_tx.try_send(UiMessage::RemoveWidget(self.id))?;
+        Ok(())
     }
 }
 

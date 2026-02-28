@@ -1,27 +1,21 @@
-//! ccui - A TUI framework built on ratatui and tokio.
+//! ccui - An ID-driven TUI framework built on ratatui and tokio.
 //!
 //! # Quick Start
 //!
 //! ```rust,no_run
-//! use ccui::{Ui, Text, Style, Event};
-//! use crossterm::event::KeyCode;
+//! use ccui::{Ui, Text, Style, Container};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let mut doc = Ui::run()?;
 //!
-//!     // Add a simple text
-//!     doc.add_widget("root".into(), "title".into(), Text::new("Hello, World!")).await?;
+//!     // Add widgets to root
+//!     doc.add_widget("title", Text::new("Hello, World!"))?;
 //!
-//!     // Add a horizontal layout with children
-//!     doc.add_container("root".into(), "row".into(), Style::new().row()).await?;
-//!     doc.add_widget("row".into(), "left".into(), Text::new("Left")).await?;
-//!     doc.add_widget("row".into(), "right".into(), Text::new("Right")).await?;
-//!
-//!     // Add a vertical layout
-//!     doc.add_container("root".into(), "col".into(), Style::new().column()).await?;
-//!     doc.add_widget("col".into(), "item1".into(), Text::new("Item 1")).await?;
-//!     doc.add_widget("col".into(), "item2".into(), Text::new("Item 2")).await?;
+//!     // Add a container and children
+//!     let row = doc.add_container("row", Style::new().row())?;
+//!     row.add_widget("left", Text::new("Left"))?;
+//!     row.add_widget("right", Text::new("Right"))?;
 //!
 //!     // Handle events
 //!     while let Some(event) = doc.event_receiver().recv().await {
@@ -54,7 +48,7 @@ mod style;
 mod widget;
 
 // Re-export public API
-pub use document::{Document, Ui};
-pub use event::{Event, UiMessage};
+pub use document::{Container, ContainerHandle, Document, Ui, WidgetHandle, WidgetOps};
+pub use event::Event;
 pub use style::{FlexDirection, RectOffset, Style};
 pub use widget::{Text, Widget};
