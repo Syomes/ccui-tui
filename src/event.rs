@@ -56,7 +56,11 @@ pub enum UiMessage {
         id: String,
         widget: Box<dyn crate::widget::Widget>,
     },
-    
+    UpdateStyle {
+        id: String,
+        style: crate::style::Style,
+    },
+
     // Event system
     AddEventListener {
         target_id: String,

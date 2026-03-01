@@ -49,6 +49,9 @@ impl RenderLoop {
                     UiMessage::UpdateWidget { id, widget } => {
                         state.root.update_widget_box(&id, widget);
                     }
+                    UiMessage::UpdateStyle { id, style } => {
+                        state.root.update_style(&id, style);
+                    }
                     UiMessage::AddEventListener {
                         target_id,
                         event_type,

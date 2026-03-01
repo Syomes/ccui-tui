@@ -1,6 +1,6 @@
 use crossterm::{
-    terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
+    terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 use tokio::sync::mpsc;
@@ -9,18 +9,18 @@ use crate::event::{Event, EventContext, EventType, ListenerId, UiMessage};
 use crate::internal::RenderLoop;
 use crate::style::Style;
 use crate::widget::Widget;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 /// A container that can hold widgets and other containers.
 pub trait Container {
     fn add_container(
-        &self,
+        &mut self,
         id: impl Into<String>,
         style: Style,
     ) -> Result<ContainerHandle, mpsc::error::TrySendError<UiMessage>>;
 
     fn add_widget<C: Widget + 'static>(
-        &self,
+        &mut self,
         id: impl Into<String>,
         widget: C,
     ) -> Result<WidgetHandle, mpsc::error::TrySendError<UiMessage>>;
@@ -36,11 +36,17 @@ pub trait WidgetOps {
     fn remove(self) -> Result<(), mpsc::error::TrySendError<UiMessage>>;
 }
 
+pub enum Handles {
+    Container(ContainerHandle),
+    Widget(WidgetHandle),
+}
+
 /// Handle to the UI system.
 ///
 /// `Document` serves as the event bus for the UI.
 /// When `Document` is dropped, the terminal is automatically restored to its original state.
 pub struct Document {
+    handles: HashMap<String, Handles>,
     ui_tx: mpsc::Sender<UiMessage>,
     event_rx: mpsc::Receiver<Event>,
 }
@@ -56,7 +62,7 @@ impl Drop for Document {
 
 impl Container for Document {
     fn add_container(
-        &self,
+        &mut self,
         id: impl Into<String>,
         style: Style,
     ) -> Result<ContainerHandle, mpsc::error::TrySendError<UiMessage>> {
@@ -64,16 +70,22 @@ impl Container for Document {
         self.ui_tx.try_send(UiMessage::AddContainer {
             parent_id: "root".to_string(),
             id: id.clone(),
-            style,
+            style: style.clone(),
         })?;
+        self.handles.insert(id.clone(), Handles::Container(ContainerHandle {
+            style: style.clone(),
+            ui_tx: self.ui_tx.clone(),
+            id: id.clone(),
+        }));
         Ok(ContainerHandle {
+            style,
             ui_tx: self.ui_tx.clone(),
             id,
         })
     }
 
     fn add_widget<C: Widget + 'static>(
-        &self,
+        &mut self,
         id: impl Into<String>,
         widget: C,
     ) -> Result<WidgetHandle, mpsc::error::TrySendError<UiMessage>> {
@@ -83,9 +95,15 @@ impl Container for Document {
             parent_id: "root".to_string(),
             id: id.clone(),
             widget: Box::new(widget),
-            style,
+            style: style.clone(),
         })?;
+        self.handles.insert(id.clone(), Handles::Widget(WidgetHandle {
+            style: style.clone(),
+            ui_tx: self.ui_tx.clone(),
+            id: id.clone(),
+        }));
         Ok(WidgetHandle {
+            style,
             ui_tx: self.ui_tx.clone(),
             id,
         })
@@ -93,17 +111,25 @@ impl Container for Document {
 }
 
 impl Document {
-    pub fn get_container(&self, id: impl Into<String>) -> ContainerHandle {
-        ContainerHandle {
-            ui_tx: self.ui_tx.clone(),
-            id: id.into(),
+    pub fn get_container(&mut self, id: impl Into<String>) -> Option<&mut ContainerHandle> {
+        if let Some(h) = self.handles.get_mut(id.into().as_str()) {
+            match h {
+                Handles::Container(h) => Some(h),
+                _ => None,
+            }
+        } else {
+            None
         }
     }
 
-    pub fn get_widget(&self, id: impl Into<String>) -> WidgetHandle {
-        WidgetHandle {
-            ui_tx: self.ui_tx.clone(),
-            id: id.into(),
+    pub fn get_widget(&mut self, id: impl Into<String>) -> Option<&mut WidgetHandle> {
+        if let Some(h) = self.handles.get_mut(id.into().as_str()) {
+            match h {
+                Handles::Widget(h) => Some(h),
+                _ => None,
+            }
+        } else {
+            None
         }
     }
 
@@ -155,7 +181,8 @@ impl Document {
         &self,
         listener_id: ListenerId,
     ) -> Result<(), mpsc::error::TrySendError<UiMessage>> {
-        self.ui_tx.try_send(UiMessage::RemoveEventListener { listener_id })?;
+        self.ui_tx
+            .try_send(UiMessage::RemoveEventListener { listener_id })?;
         Ok(())
     }
 
@@ -167,6 +194,7 @@ impl Document {
 /// Handle to a container.
 #[derive(Clone)]
 pub struct ContainerHandle {
+    pub style: Style,
     ui_tx: mpsc::Sender<UiMessage>,
     id: String,
 }
@@ -175,11 +203,24 @@ impl ContainerHandle {
     pub fn id(&self) -> &str {
         &self.id
     }
+
+    /// Update style using a closure.
+    pub fn update_style<F>(&mut self, f: F) -> Result<(), mpsc::error::TrySendError<UiMessage>>
+    where
+        F: FnOnce(&mut Style),
+    {
+        f(&mut self.style);
+        self.ui_tx.try_send(UiMessage::UpdateStyle {
+            id: self.id.clone(),
+            style: self.style.clone(),
+        })?;
+        Ok(())
+    }
 }
 
 impl Container for ContainerHandle {
     fn add_container(
-        &self,
+        &mut self,
         id: impl Into<String>,
         style: Style,
     ) -> Result<ContainerHandle, mpsc::error::TrySendError<UiMessage>> {
@@ -187,16 +228,17 @@ impl Container for ContainerHandle {
         self.ui_tx.try_send(UiMessage::AddContainer {
             parent_id: self.id.clone(),
             id: id.clone(),
-            style,
+            style: style.clone(),
         })?;
         Ok(ContainerHandle {
+            style,
             ui_tx: self.ui_tx.clone(),
             id,
         })
     }
 
     fn add_widget<C: Widget + 'static>(
-        &self,
+        &mut self,
         id: impl Into<String>,
         widget: C,
     ) -> Result<WidgetHandle, mpsc::error::TrySendError<UiMessage>> {
@@ -206,9 +248,10 @@ impl Container for ContainerHandle {
             parent_id: self.id.clone(),
             id: id.clone(),
             widget: Box::new(widget),
-            style,
+            style: style.clone(),
         })?;
         Ok(WidgetHandle {
+            style,
             ui_tx: self.ui_tx.clone(),
             id,
         })
@@ -218,6 +261,7 @@ impl Container for ContainerHandle {
 /// Handle to a widget.
 #[derive(Clone)]
 pub struct WidgetHandle {
+    pub style: Style,
     ui_tx: mpsc::Sender<UiMessage>,
     id: String,
 }
@@ -273,6 +317,10 @@ impl Ui {
             }
         });
 
-        Ok(Document { ui_tx, event_rx })
+        Ok(Document {
+            handles: HashMap::new(),
+            ui_tx,
+            event_rx,
+        })
     }
 }

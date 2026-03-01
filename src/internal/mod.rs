@@ -154,6 +154,12 @@ impl Node {
         }
     }
 
+    pub fn update_style(&mut self, id: &str, style: Style) {
+        if let Some(node) = self.find_child_mut(id) {
+            node.style = style;
+        }
+    }
+
     // Event system methods
 
     /// Add an event listener to a node.
