@@ -3,35 +3,29 @@
 //! # Quick Start
 //!
 //! ```rust,no_run
-//! use ccui::{Ui, Text, Style, Container};
+//! use ccui::{Ui, Text, Style, Container, EventType};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let mut doc = Ui::run()?;
 //!
-//!     // Add widgets to root
-//!     doc.add_widget("title", Text::new("Hello, World!"))?;
+//!     // Add widgets
+//!     doc.add_widget("title", Text::new("Hello"))?;
 //!
-//!     // Add a container and children
+//!     // Add container with children
 //!     let row = doc.add_container("row", Style::new().row())?;
-//!     row.add_widget("left", Text::new("Left"))?;
-//!     row.add_widget("right", Text::new("Right"))?;
+//!     row.add_widget("btn", Text::new("Click me"))?;
+//!
+//!     // Add event listener
+//!     doc.add_event_listener("btn", EventType::Click, |ctx| {
+//!         println!("Clicked at ({:?}, {:?})", ctx.mouse_x, ctx.mouse_y);
+//!     })?;
 //!
 //!     // Handle events
 //!     while let Some(event) = doc.event_receiver().recv().await {
-//!         match event {
-//!             Event::Key(key) => {
-//!                 match key.code {
-//!                     KeyCode::Char('q') => break,  // Quit on 'q'
-//!                     KeyCode::Char('c') if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => break,
-//!                     _ => {}
-//!                 }
-//!             }
-//!             Event::Mouse(mouse) => {
-//!                 // Handle mouse clicks
-//!             }
-//!             Event::Resize(w, h) => {
-//!                 // Handle terminal resize
+//!         if let ccui::Event::Key(key) = event {
+//!             if key.code == crossterm::event::KeyCode::Char('q') {
+//!                 break;
 //!             }
 //!         }
 //!     }
@@ -49,6 +43,6 @@ mod widget;
 
 // Re-export public API
 pub use document::{Container, ContainerHandle, Document, Ui, WidgetHandle, WidgetOps};
-pub use event::Event;
+pub use event::{Event, EventContext, EventType, ListenerId};
 pub use style::{FlexDirection, RectOffset, Style};
 pub use widget::{Text, Widget};

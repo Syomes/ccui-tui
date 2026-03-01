@@ -1,14 +1,15 @@
 use crossterm::{
-    ExecutableCommand,
     terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
+    ExecutableCommand,
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 use tokio::sync::mpsc;
 
-use crate::event::{Event, UiMessage};
+use crate::event::{Event, EventContext, EventType, ListenerId, UiMessage};
 use crate::internal::RenderLoop;
 use crate::style::Style;
 use crate::widget::Widget;
+use std::sync::Arc;
 
 /// A container that can hold widgets and other containers.
 pub trait Container {
@@ -37,9 +38,7 @@ pub trait WidgetOps {
 
 /// Handle to the UI system.
 ///
-/// `Document` serves as the event bus for the UI, providing:
-/// - A receiver to get terminal events from the internal loop (`event_receiver`)
-///
+/// `Document` serves as the event bus for the UI.
 /// When `Document` is dropped, the terminal is automatically restored to its original state.
 pub struct Document {
     ui_tx: mpsc::Sender<UiMessage>,
@@ -51,6 +50,7 @@ impl Drop for Document {
         // Cleanup terminal on exit
         let _ = terminal::disable_raw_mode();
         let _ = std::io::stdout().execute(LeaveAlternateScreen);
+        let _ = std::io::stdout().execute(crossterm::event::DisableMouseCapture);
     }
 }
 
@@ -124,6 +124,38 @@ impl Document {
         id: impl Into<String>,
     ) -> Result<(), mpsc::error::TrySendError<UiMessage>> {
         self.ui_tx.try_send(UiMessage::RemoveWidget(id.into()))?;
+        Ok(())
+    }
+
+    /// Add an event listener to an element.
+    ///
+    /// The listener will be called when the specified event occurs on the target element.
+    /// Supported events: Click, ScrollUp, ScrollDown, Hover
+    pub fn add_event_listener<F>(
+        &self,
+        target_id: impl Into<String>,
+        event_type: EventType,
+        listener: F,
+    ) -> Result<ListenerId, mpsc::error::TrySendError<UiMessage>>
+    where
+        F: Fn(EventContext) + Send + Sync + 'static,
+    {
+        let listener_id = ListenerId::new();
+        self.ui_tx.try_send(UiMessage::AddEventListener {
+            target_id: target_id.into(),
+            event_type,
+            listener: Arc::new(listener),
+            listener_id,
+        })?;
+        Ok(listener_id)
+    }
+
+    /// Remove an event listener by its ID.
+    pub fn remove_event_listener(
+        &self,
+        listener_id: ListenerId,
+    ) -> Result<(), mpsc::error::TrySendError<UiMessage>> {
+        self.ui_tx.try_send(UiMessage::RemoveEventListener { listener_id })?;
         Ok(())
     }
 
@@ -228,6 +260,7 @@ impl Ui {
         // Enter alternate screen and raw mode
         terminal::enable_raw_mode()?;
         std::io::stdout().execute(EnterAlternateScreen)?;
+        std::io::stdout().execute(crossterm::event::EnableMouseCapture)?;
 
         let terminal = Terminal::new(CrosstermBackend::new(std::io::stdout()))?;
 

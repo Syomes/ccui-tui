@@ -2,9 +2,12 @@ mod render;
 
 pub use render::RenderLoop;
 
+use crate::event::{EventContext, EventListener, EventType, ListenerId};
 use crate::style::Style;
 use crate::widget::Widget;
 use ratatui::{Frame, layout::Rect};
+use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Internal node in the UI tree.
 ///
@@ -20,16 +23,19 @@ pub struct Node {
     pub area: Rect,
     pub widget: Option<Box<dyn Widget>>,
     pub children: Vec<Node>,
+    /// Event listeners attached to this node.
+    pub listeners: HashMap<EventType, HashMap<ListenerId, EventListener>>,
 }
 
 impl Node {
     pub fn new(id: String) -> Self {
         Node {
             id,
-            style: Style::new().column(), // root default: vertical layout
+            style: Style::new().column(),
             area: Rect::default(),
             widget: None,
             children: vec![],
+            listeners: HashMap::new(),
         }
     }
 
@@ -59,6 +65,35 @@ impl Node {
         }
     }
 
+    /// Find the widget at the given position.
+    /// Returns the id of the deepest child that contains the point.
+    pub fn find_widget_at(&self, x: u16, y: u16) -> Option<String> {
+        if !self.area.contains((x, y).into()) {
+            return None;
+        }
+
+        for child in &self.children {
+            if let Some(id) = child.find_widget_at(x, y) {
+                return Some(id);
+            }
+        }
+
+        if self.widget.is_some() {
+            Some(self.id.clone())
+        } else {
+            None
+        }
+    }
+
+    /// Trigger all listeners for the given event type.
+    pub fn trigger_event(&self, event_type: &EventType, ctx: EventContext) {
+        if let Some(listeners) = self.listeners.get(event_type) {
+            for listener in listeners.values() {
+                listener(ctx.clone());
+            }
+        }
+    }
+
     fn find_child_mut(&mut self, id: &str) -> Option<&mut Node> {
         if self.id == id {
             return Some(self);
@@ -85,6 +120,7 @@ impl Node {
                 area: Rect::default(),
                 widget: Some(widget),
                 children: vec![],
+                listeners: HashMap::new(),
             });
         }
     }
@@ -97,6 +133,7 @@ impl Node {
                 area: Rect::default(),
                 widget: None,
                 children: vec![],
+                listeners: HashMap::new(),
             });
         }
     }
@@ -105,6 +142,7 @@ impl Node {
         if self.id == id {
             self.widget = None;
             self.children.clear();
+            self.listeners.clear();
             return;
         }
         self.children.retain(|child| child.id != id);
@@ -113,6 +151,44 @@ impl Node {
     pub fn update_widget_box(&mut self, id: &str, widget: Box<dyn Widget>) {
         if let Some(node) = self.find_child_mut(id) {
             node.widget = Some(widget);
+        }
+    }
+
+    // Event system methods
+
+    /// Add an event listener to a node.
+    pub fn add_event_listener(
+        &mut self,
+        target_id: &str,
+        event_type: EventType,
+        listener: EventListener,
+        listener_id: ListenerId,
+    ) {
+        if self.id == target_id {
+            self.listeners
+                .entry(event_type)
+                .or_insert_with(HashMap::new)
+                .insert(listener_id, listener);
+        } else {
+            // Recursively search in children
+            for child in &mut self.children {
+                child.add_event_listener(
+                    target_id,
+                    event_type.clone(),
+                    Arc::clone(&listener),
+                    listener_id,
+                );
+            }
+        }
+    }
+
+    /// Remove an event listener by its ID.
+    pub fn remove_event_listener(&mut self, listener_id: ListenerId) {
+        for listeners in self.listeners.values_mut() {
+            listeners.remove(&listener_id);
+        }
+        for child in &mut self.children {
+            child.remove_event_listener(listener_id);
         }
     }
 }
