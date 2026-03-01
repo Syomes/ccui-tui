@@ -76,18 +76,15 @@ impl RenderLoop {
                 if let Ok(event) = crossterm::event::read() {
                     match event {
                         crossterm::event::Event::Key(key) => {
-                            // Forward key events to users via event_receiver
-                            let _ = event_tx.send(Event::Key(key)).await;
-                            // Future: dispatch to focused element
+                            let _ = event_tx.try_send(Event::Key(key));
                         }
                         crossterm::event::Event::Mouse(mouse) => {
-                            // Forward to users
-                            let _ = event_tx.send(Event::Mouse(mouse.clone())).await;
+                            let _ = event_tx.try_send(Event::Mouse(mouse.clone()));
                             // Dispatch to element under mouse
                             state.dispatch_mouse_event(mouse);
                         }
                         crossterm::event::Event::Resize(w, h) => {
-                            let _ = event_tx.send(Event::Resize(w, h)).await;
+                            let _ = event_tx.try_send(Event::Resize(w, h));
                         }
                         _ => {}
                     }
@@ -104,7 +101,8 @@ impl RenderLoop {
                 state.root.render(f);
             });
 
-            tokio::time::sleep(tokio::time::Duration::from_millis(16)).await;
+            // TODO: add user-configurable FPS limit here
+            tokio::time::sleep(tokio::time::Duration::from_millis(0)).await;
         }
     }
 
@@ -115,7 +113,7 @@ impl RenderLoop {
             MouseEventKind::Down(_) => EventType::Click,
             MouseEventKind::Up(_) => return,
             MouseEventKind::Drag(_) => return,
-            MouseEventKind::Moved => EventType::Hover,
+            MouseEventKind::Moved => return,  // Ignore temporarily
             MouseEventKind::ScrollUp => EventType::ScrollUp,
             MouseEventKind::ScrollDown => EventType::ScrollDown,
             _ => return,
