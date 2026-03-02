@@ -1,4 +1,4 @@
-use ratatui::layout::Rect;
+use ratatui::layout::{Direction, Layout, Rect, Spacing};
 
 /// Flex direction - how children are arranged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -14,7 +14,7 @@ pub enum FlexDirection {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BorderType {
     #[default]
-    Plain,   // ─ │ ┌ ┐ └ ┘
+    Plain, // ─ │ ┌ ┐ └ ┘
     Rounded, // ╭ ╮ ╰ ╯
     Double,  // ═ ║ ╔ ╗ ╚ ╝
     Thick,   // ━ ┃ ┏ ┓ ┗ ┛
@@ -158,43 +158,20 @@ impl Style {
             .height
             .saturating_sub(self.padding.top + self.padding.bottom);
 
-        let total_gap = self.gap * (n_children as u16 - 1);
+        let content_area = Rect::new(content_x, content_y, content_w, content_h);
 
-        match self.flex_direction {
-            FlexDirection::Row => {
-                let available_width = content_w.saturating_sub(total_gap);
-                let child_width = available_width / n_children as u16;
+        let constraints =
+            vec![ratatui::layout::Constraint::Ratio(1, n_children as u32); n_children];
 
-                (0..n_children)
-                    .map(|i| {
-                        // Add 1 pixel overlap for border merging
-                        let overlap = if i > 0 { 1 } else { 0 };
-                        Rect::new(
-                            content_x + (i as u16 * (child_width + self.gap)) - overlap,
-                            content_y,
-                            child_width + overlap as u16,
-                            content_h,
-                        )
-                    })
-                    .collect()
-            }
-            FlexDirection::Column => {
-                let available_height = content_h.saturating_sub(total_gap);
-                let child_height = available_height / n_children as u16;
+        let chunks = Layout::default()
+            .direction(match self.flex_direction {
+                FlexDirection::Row => Direction::Horizontal,
+                FlexDirection::Column => Direction::Vertical,
+            })
+            .constraints(constraints)
+            .spacing(Spacing::Overlap(self.gap))
+            .split(content_area);
 
-                (0..n_children)
-                    .map(|i| {
-                        // Add 1 pixel overlap for border merging
-                        let overlap = if i > 0 { 1 } else { 0 };
-                        Rect::new(
-                            content_x,
-                            content_y + (i as u16 * (child_height + self.gap)) - overlap,
-                            content_w,
-                            child_height + overlap as u16,
-                        )
-                    })
-                    .collect()
-            }
-        }
+        chunks.to_vec()
     }
 }
