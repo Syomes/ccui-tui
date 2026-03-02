@@ -1,6 +1,7 @@
 use crate::style::Style;
 use crate::widget::Widget;
 use ratatui::{Frame, layout::Rect, widgets::Paragraph};
+use unicode_width::UnicodeWidthStr;
 
 /// A simple text display widget.
 pub struct Text {
@@ -34,5 +35,18 @@ impl Widget for Text {
 
     fn node_style_hint(&self) -> Option<Style> {
         Some(Style::new().column())
+    }
+
+    fn content_size(&self, area: Rect) -> (u16, u16) {
+        // Text content size: unicode width of content * number of lines
+        // Capped at available area
+        let lines = self.content.lines().count() as u16;
+        let max_line_len = self
+            .content
+            .lines()
+            .map(|l| l.width() as u16)
+            .max()
+            .unwrap_or(0);
+        (max_line_len.min(area.width), lines.min(area.height))
     }
 }

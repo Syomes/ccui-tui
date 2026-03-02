@@ -20,7 +20,8 @@ use std::sync::Arc;
 pub struct Node {
     pub id: String,
     pub style: Style,
-    pub area: Rect,
+    pub area: Rect,         // Allocated area from layout
+    pub content_area: Rect, // Actual content area (for hit testing)
     pub widget: Option<Box<dyn Widget>>,
     pub children: Vec<Node>,
     /// Event listeners attached to this node.
@@ -33,6 +34,7 @@ impl Node {
             id,
             style: Style::new().column(),
             area: Rect::default(),
+            content_area: Rect::default(),
             widget: None,
             children: vec![],
             listeners: HashMap::new(),
@@ -43,6 +45,14 @@ impl Node {
     pub fn layout(&mut self, parent_area: Rect) {
         // Calculate this node's area
         self.area = parent_area;
+
+        // Calculate content area
+        if let Some(widget) = &self.widget {
+            let (w, h) = widget.content_size(self.area);
+            self.content_area = Rect::new(self.area.x, self.area.y, w, h);
+        } else {
+            self.content_area = self.area;
+        }
 
         // Layout children
         let child_areas = self
@@ -78,7 +88,11 @@ impl Node {
             }
         }
 
-        if self.widget.is_some() {
+        // Check content area for widget hit testing
+        if self.widget.is_some() && self.content_area.contains((x, y).into()) {
+            Some(self.id.clone())
+        } else if self.widget.is_none() {
+            // Container without widget
             Some(self.id.clone())
         } else {
             None
@@ -118,6 +132,7 @@ impl Node {
                 id,
                 style,
                 area: Rect::default(),
+                content_area: Rect::default(),
                 widget: Some(widget),
                 children: vec![],
                 listeners: HashMap::new(),
@@ -131,6 +146,7 @@ impl Node {
                 id,
                 style,
                 area: Rect::default(),
+                content_area: Rect::default(),
                 widget: None,
                 children: vec![],
                 listeners: HashMap::new(),

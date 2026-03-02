@@ -10,6 +10,13 @@ pub trait Widget: Send + Sync {
     fn node_style_hint(&self) -> Option<Style> {
         None
     }
+
+    /// Get the actual content size within the given area.
+    /// Returns (width, height) of the actual content.
+    /// Default: occupies the entire area.
+    fn content_size(&self, area: Rect) -> (u16, u16) {
+        (area.width, area.height)
+    }
 }
 
 pub mod text;
