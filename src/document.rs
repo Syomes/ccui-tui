@@ -317,8 +317,16 @@ impl Ui {
             }
         });
 
+        // Initialize handles with root container
+        let mut handles = HashMap::new();
+        handles.insert("root".to_string(), Handles::Container(ContainerHandle {
+            style: Style::new().column(),
+            ui_tx: ui_tx.clone(),
+            id: "root".to_string(),
+        }));
+
         Ok(Document {
-            handles: HashMap::new(),
+            handles,
             ui_tx,
             event_rx,
         })
