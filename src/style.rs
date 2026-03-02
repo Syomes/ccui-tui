@@ -1,5 +1,13 @@
 use ratatui::layout::Rect;
 
+/// Layout mode for containers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LayoutMode {
+    /// Children are tiled to fill the available space (default).
+    #[default]
+    Tiled,
+}
+
 /// Flex direction - how children are arranged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FlexDirection {
@@ -66,6 +74,7 @@ pub struct Style {
     pub gap: u16,
     pub padding: RectOffset,
     pub border: Border,
+    pub layout_mode: LayoutMode,
 }
 
 impl Style {
@@ -111,6 +120,11 @@ impl Style {
             show: false,
             border_type: BorderType::Plain,
         };
+        self
+    }
+
+    pub fn tiled(mut self) -> Self {
+        self.layout_mode = LayoutMode::Tiled;
         self
     }
 
