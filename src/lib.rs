@@ -45,4 +45,4 @@ mod widget;
 pub use document::{Container, ContainerHandle, Document, Ui, WidgetHandle, WidgetOps};
 pub use event::{Event, EventContext, EventType, ListenerId};
 pub use style::{Border, BorderType, FlexDirection, RectOffset, Style};
-pub use widget::{Text, Widget};
+pub use widget::{Direction, Divider, Text, Widget};

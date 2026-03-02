@@ -1,4 +1,4 @@
-use ratatui::layout::{Direction, Layout, Rect, Spacing};
+use ratatui::layout::Rect;
 
 /// Flex direction - how children are arranged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -141,8 +141,12 @@ impl Style {
     }
 
     /// Calculate child areas based on flex direction.
-    pub fn calculate_children_areas(&self, parent_area: Rect, n_children: usize) -> Vec<Rect> {
-        if n_children == 0 {
+    pub fn calculate_children_areas(
+        &self,
+        parent_area: Rect,
+        children: &[crate::internal::Node],
+    ) -> Vec<Rect> {
+        if children.is_empty() {
             return vec![];
         }
 
@@ -158,20 +162,91 @@ impl Style {
             .height
             .saturating_sub(self.padding.top + self.padding.bottom);
 
-        let content_area = Rect::new(content_x, content_y, content_w, content_h);
+        // Calculate fixed size from size hints
+        let mut fixed_size = 0u16;
+        let mut flexible_count = 0u16;
 
-        let constraints =
-            vec![ratatui::layout::Constraint::Ratio(1, n_children as u32); n_children];
+        for child in children {
+            if let Some(widget) = &child.widget {
+                if let Some((w, h)) = widget.size_hint() {
+                    match self.flex_direction {
+                        FlexDirection::Row => {
+                            if w > 0 {
+                                fixed_size += w;
+                            } else {
+                                flexible_count += 1;
+                            }
+                        }
+                        FlexDirection::Column => {
+                            if h > 0 {
+                                fixed_size += h;
+                            } else {
+                                flexible_count += 1;
+                            }
+                        }
+                    }
+                } else {
+                    flexible_count += 1;
+                }
+            } else {
+                flexible_count += 1;
+            }
+        }
 
-        let chunks = Layout::default()
-            .direction(match self.flex_direction {
-                FlexDirection::Row => Direction::Horizontal,
-                FlexDirection::Column => Direction::Vertical,
-            })
-            .constraints(constraints)
-            .spacing(Spacing::Overlap(self.gap))
-            .split(content_area);
+        // Calculate flexible size
+        let flexible_size = match self.flex_direction {
+            FlexDirection::Row => {
+                let available = content_w.saturating_sub(fixed_size);
+                available / flexible_count.max(1)
+            }
+            FlexDirection::Column => {
+                let available = content_h.saturating_sub(fixed_size);
+                available / flexible_count.max(1)
+            }
+        };
 
-        chunks.to_vec()
+        // Build areas
+        let mut areas = Vec::with_capacity(children.len());
+        let mut pos = match self.flex_direction {
+            FlexDirection::Row => content_x,
+            FlexDirection::Column => content_y,
+        };
+
+        for child in children {
+            let size = if let Some(widget) = &child.widget {
+                if let Some((w, h)) = widget.size_hint() {
+                    match self.flex_direction {
+                        FlexDirection::Row => {
+                            if w > 0 {
+                                w
+                            } else {
+                                flexible_size
+                            }
+                        }
+                        FlexDirection::Column => {
+                            if h > 0 {
+                                h
+                            } else {
+                                flexible_size
+                            }
+                        }
+                    }
+                } else {
+                    flexible_size
+                }
+            } else {
+                flexible_size
+            };
+
+            let area = match self.flex_direction {
+                FlexDirection::Row => Rect::new(pos, content_y, size, content_h),
+                FlexDirection::Column => Rect::new(content_x, pos, content_w, size),
+            };
+
+            areas.push(area);
+            pos += size;
+        }
+
+        areas
     }
 }

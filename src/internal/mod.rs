@@ -54,10 +54,10 @@ impl Node {
             self.content_area = self.area;
         }
 
-        // Layout children
+        // Layout children (pass children slice for size hints)
         let child_areas = self
             .style
-            .calculate_children_areas(self.area, self.children.len());
+            .calculate_children_areas(self.area, &self.children);
         for (child, area) in self.children.iter_mut().zip(child_areas) {
             child.layout(area);
         }
@@ -81,7 +81,7 @@ impl Node {
                 let block = Block::default()
                     .border_type(border_type)
                     .borders(ratatui::widgets::Borders::ALL)
-                    .merge_borders(MergeStrategy::Exact);  // ← 启用边框合并
+                    .merge_borders(MergeStrategy::Exact); // ← 启用边框合并
 
                 f.render_widget(block, self.area);
             }
