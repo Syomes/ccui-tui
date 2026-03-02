@@ -29,7 +29,10 @@ impl Widget for Text {
         // Apply padding to get inner area
         let inner_area = style.shrink(area);
 
-        let paragraph = Paragraph::new(self.content.as_str());
+        // Text with automatic word wrapping based on available width
+        let paragraph = Paragraph::new(self.content.as_str())
+            .wrap(ratatui::widgets::Wrap { trim: false });
+        
         f.render_widget(paragraph, inner_area);
     }
 
@@ -38,15 +41,24 @@ impl Widget for Text {
     }
 
     fn content_size(&self, area: Rect) -> (u16, u16) {
-        // Text content size: unicode width of content * number of lines
-        // Capped at available area
-        let lines = self.content.lines().count() as u16;
-        let max_line_len = self
-            .content
-            .lines()
-            .map(|l| l.width() as u16)
-            .max()
-            .unwrap_or(0);
-        (max_line_len.min(area.width), lines.min(area.height))
+        // Text content size with word wrapping based on available width
+        let max_width = area.width as usize;
+        if max_width == 0 {
+            return (0, 0);
+        }
+        
+        let mut total_lines = 0;
+        let mut max_line_width = 0;
+        
+        for line in self.content.lines() {
+            let line_width = line.width();
+            max_line_width = max_line_width.max(line_width);
+            
+            // Calculate how many terminal lines this line needs
+            let wrapped_lines = (line_width + max_width - 1) / max_width;
+            total_lines += wrapped_lines.max(1);
+        }
+        
+        (max_line_width.min(area.width as usize) as u16, total_lines as u16)
     }
 }
