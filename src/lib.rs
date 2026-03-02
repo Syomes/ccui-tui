@@ -44,5 +44,5 @@ mod widget;
 // Re-export public API
 pub use document::{Container, ContainerHandle, Document, Ui, WidgetHandle, WidgetOps};
 pub use event::{Event, EventContext, EventType, ListenerId};
-pub use style::{FlexDirection, RectOffset, Style};
+pub use style::{Border, BorderType, FlexDirection, RectOffset, Style};
 pub use widget::{Text, Widget};

@@ -64,7 +64,30 @@ impl Node {
     }
 
     pub fn render(&self, f: &mut Frame) {
-        // First render this node's widget if it has one
+        // Render border for containers (nodes without widget or with children)
+        if self.widget.is_none() || !self.children.is_empty() {
+            if self.style.border.show {
+                use crate::style::BorderType;
+                use ratatui::symbols::merge::MergeStrategy;
+                use ratatui::widgets::{Block, BorderType as RatatuiBorderType};
+
+                let border_type = match self.style.border.border_type {
+                    BorderType::Plain => RatatuiBorderType::Plain,
+                    BorderType::Rounded => RatatuiBorderType::Rounded,
+                    BorderType::Double => RatatuiBorderType::Double,
+                    BorderType::Thick => RatatuiBorderType::Thick,
+                };
+
+                let block = Block::default()
+                    .border_type(border_type)
+                    .borders(ratatui::widgets::Borders::ALL)
+                    .merge_borders(MergeStrategy::Exact);  // ← 启用边框合并
+
+                f.render_widget(block, self.area);
+            }
+        }
+
+        // Render widget if present
         if let Some(widget) = &self.widget {
             widget.render(f, self.area, &self.style);
         }

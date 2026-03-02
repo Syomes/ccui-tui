@@ -10,6 +10,23 @@ pub enum FlexDirection {
     Column,
 }
 
+/// Border type for containers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BorderType {
+    #[default]
+    Plain,   // ─ │ ┌ ┐ └ ┘
+    Rounded, // ╭ ╮ ╰ ╯
+    Double,  // ═ ║ ╔ ╗ ╚ ╝
+    Thick,   // ━ ┃ ┏ ┓ ┗ ┛
+}
+
+/// Border configuration.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Border {
+    pub show: bool,
+    pub border_type: BorderType,
+}
+
 /// Spacing offset (padding).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RectOffset {
@@ -48,6 +65,7 @@ pub struct Style {
     pub flex_direction: FlexDirection,
     pub gap: u16,
     pub padding: RectOffset,
+    pub border: Border,
 }
 
 impl Style {
@@ -80,6 +98,22 @@ impl Style {
         self
     }
 
+    pub fn border(mut self, border_type: BorderType) -> Self {
+        self.border = Border {
+            show: true,
+            border_type,
+        };
+        self
+    }
+
+    pub fn no_border(mut self) -> Self {
+        self.border = Border {
+            show: false,
+            border_type: BorderType::Plain,
+        };
+        self
+    }
+
     /// Shrink the area by padding.
     pub fn shrink(&self, area: Rect) -> Rect {
         Rect::new(
@@ -92,19 +126,35 @@ impl Style {
         )
     }
 
+    /// Shrink the area by border.
+    pub fn shrink_border(&self, area: Rect) -> Rect {
+        if !self.border.show {
+            return area;
+        }
+        // Shrink by 1 pixel for border, but allow overlap for border merging
+        Rect::new(
+            area.x + 1,
+            area.y + 1,
+            area.width.saturating_sub(2),
+            area.height.saturating_sub(2),
+        )
+    }
+
     /// Calculate child areas based on flex direction.
     pub fn calculate_children_areas(&self, parent_area: Rect, n_children: usize) -> Vec<Rect> {
         if n_children == 0 {
             return vec![];
         }
 
-        // Apply padding to get content area
-        let content_x = parent_area.x + self.padding.left;
-        let content_y = parent_area.y + self.padding.top;
-        let content_w = parent_area
+        // Apply border and padding to get content area
+        let area_after_border = self.shrink_border(parent_area);
+
+        let content_x = area_after_border.x + self.padding.left;
+        let content_y = area_after_border.y + self.padding.top;
+        let content_w = area_after_border
             .width
             .saturating_sub(self.padding.left + self.padding.right);
-        let content_h = parent_area
+        let content_h = area_after_border
             .height
             .saturating_sub(self.padding.top + self.padding.bottom);
 
@@ -117,10 +167,12 @@ impl Style {
 
                 (0..n_children)
                     .map(|i| {
+                        // Add 1 pixel overlap for border merging
+                        let overlap = if i > 0 { 1 } else { 0 };
                         Rect::new(
-                            content_x + (i as u16 * (child_width + self.gap)),
+                            content_x + (i as u16 * (child_width + self.gap)) - overlap,
                             content_y,
-                            child_width,
+                            child_width + overlap as u16,
                             content_h,
                         )
                     })
@@ -132,11 +184,13 @@ impl Style {
 
                 (0..n_children)
                     .map(|i| {
+                        // Add 1 pixel overlap for border merging
+                        let overlap = if i > 0 { 1 } else { 0 };
                         Rect::new(
                             content_x,
-                            content_y + (i as u16 * (child_height + self.gap)),
+                            content_y + (i as u16 * (child_height + self.gap)) - overlap,
                             content_w,
-                            child_height,
+                            child_height + overlap as u16,
                         )
                     })
                     .collect()
