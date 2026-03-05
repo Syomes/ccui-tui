@@ -3,7 +3,7 @@ mod render;
 pub use render::RenderLoop;
 
 use crate::event::{EventContext, EventListener, EventType, ListenerId};
-use crate::style::Style;
+use crate::style::{FlexDirection, Style};
 use crate::widget::Widget;
 use ratatui::{Frame, layout::Rect};
 use std::collections::HashMap;
@@ -196,6 +196,61 @@ impl Node {
     pub fn update_style(&mut self, id: &str, style: Style) {
         if let Some(node) = self.find_child_mut(id) {
             node.style = style;
+        }
+    }
+
+    /// Calculate the content size of this node (including children).
+    pub fn calculate_content_size(&self, available_area: Rect) -> (u16, u16) {
+        if let Some(widget) = &self.widget {
+            // Leaf: use widget's content size + border + padding
+            let (w, h) = widget.content_size(available_area);
+            let total_w = w
+                + self.style.padding.left
+                + self.style.padding.right
+                + if self.style.border.show { 2 } else { 0 };
+            let total_h = h
+                + self.style.padding.top
+                + self.style.padding.bottom
+                + if self.style.border.show { 2 } else { 0 };
+            (total_w, total_h)
+        } else if !self.children.is_empty() {
+            // Container: calculate based on children + border + padding
+            let (children_w, children_h) = match self.style.flex_direction {
+                FlexDirection::Row => {
+                    let mut total_w = 0;
+                    let mut max_h = 0;
+                    for child in &self.children {
+                        let (w, h) = child.calculate_content_size(available_area);
+                        total_w += w + self.style.gap;
+                        max_h = max_h.max(h);
+                    }
+                    (total_w.saturating_sub(self.style.gap), max_h)
+                }
+                FlexDirection::Column => {
+                    let mut max_w = 0;
+                    let mut total_h = 0;
+                    for child in &self.children {
+                        let (w, h) = child.calculate_content_size(available_area);
+                        max_w = max_w.max(w);
+                        total_h += h + self.style.gap;
+                    }
+                    (max_w, total_h.saturating_sub(self.style.gap))
+                }
+            };
+
+            // Add border and padding
+            let total_w = children_w
+                + self.style.padding.left
+                + self.style.padding.right
+                + if self.style.border.show { 2 } else { 0 };
+            let total_h = children_h
+                + self.style.padding.top
+                + self.style.padding.bottom
+                + if self.style.border.show { 2 } else { 0 };
+            (total_w, total_h)
+        } else {
+            // Empty container
+            (0, 0)
         }
     }
 

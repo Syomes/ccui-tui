@@ -6,6 +6,8 @@ pub enum LayoutMode {
     /// Children are tiled to fill the available space (default).
     #[default]
     Tiled,
+    /// Children size themselves based on content.
+    Auto,
 }
 
 /// Flex direction - how children are arranged.
@@ -128,6 +130,11 @@ impl Style {
         self
     }
 
+    pub fn auto(mut self) -> Self {
+        self.layout_mode = LayoutMode::Auto;
+        self
+    }
+
     /// Shrink the area by padding.
     pub fn shrink(&self, area: Rect) -> Rect {
         Rect::new(
@@ -156,6 +163,18 @@ impl Style {
 
     /// Calculate child areas based on flex direction.
     pub fn calculate_children_areas(
+        &self,
+        parent_area: Rect,
+        children: &[crate::internal::Node],
+    ) -> Vec<Rect> {
+        match self.layout_mode {
+            LayoutMode::Tiled => self.calculate_tiled_areas(parent_area, children),
+            LayoutMode::Auto => self.calculate_auto_areas(parent_area, children),
+        }
+    }
+
+    /// Calculate child areas for tiled layout (equal division).
+    fn calculate_tiled_areas(
         &self,
         parent_area: Rect,
         children: &[crate::internal::Node],
@@ -259,6 +278,56 @@ impl Style {
 
             areas.push(area);
             pos += size;
+        }
+
+        areas
+    }
+
+    /// Calculate child areas for auto layout (content-based).
+    fn calculate_auto_areas(
+        &self,
+        parent_area: Rect,
+        children: &[crate::internal::Node],
+    ) -> Vec<Rect> {
+        if children.is_empty() {
+            return vec![];
+        }
+
+        // Apply border and padding to get content area
+        let area_after_border = self.shrink_border(parent_area);
+
+        let content_x = area_after_border.x + self.padding.left;
+        let content_y = area_after_border.y + self.padding.top;
+        let content_w = area_after_border
+            .width
+            .saturating_sub(self.padding.left + self.padding.right);
+        let content_h = area_after_border
+            .height
+            .saturating_sub(self.padding.top + self.padding.bottom);
+
+        // Build areas: each child gets its content size (recursive for containers)
+        let mut areas = Vec::with_capacity(children.len());
+        let mut pos = match self.flex_direction {
+            FlexDirection::Row => content_x,
+            FlexDirection::Column => content_y,
+        };
+
+        for child in children {
+            // Get child size (recursive for containers)
+            let (child_w, child_h) =
+                child.calculate_content_size(Rect::new(0, 0, content_w, content_h));
+
+            let area = match self.flex_direction {
+                FlexDirection::Row => Rect::new(pos, content_y, child_w, content_h),
+                FlexDirection::Column => Rect::new(content_x, pos, content_w, child_h),
+            };
+            areas.push(area);
+
+            // Move position
+            match self.flex_direction {
+                FlexDirection::Row => pos += child_w + self.gap,
+                FlexDirection::Column => pos += child_h + self.gap,
+            }
         }
 
         areas
