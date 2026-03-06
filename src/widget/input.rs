@@ -1,31 +1,41 @@
 use crate::style::{BorderType, Style};
 use crate::widget::Widget;
-use crossterm::event::{Event as CrosstermEvent, KeyEvent};
+use crossterm::event::KeyEvent;
 use ratatui::{
     Frame,
     layout::Rect,
-    widgets::{Block, Borders, Paragraph},
+    style::{Modifier, Style as RatatuiStyle},
+    widgets::{Block, Borders},
 };
-use tui_input::Input as TuiInput;
-use tui_input::backend::crossterm::EventHandler;
+use ratatui_textarea::TextArea;
+use std::sync::Mutex;
 
-/// An input field widget that accepts text input.
+/// An input field widget that accepts text input (single-line mode).
 pub struct Input {
-    input: TuiInput,
+    textarea: Mutex<TextArea<'static>>,
     border_type: Option<BorderType>,
 }
 
 impl Input {
     pub fn new() -> Self {
+        let mut textarea = TextArea::default();
+        textarea.set_cursor_line_style(RatatuiStyle::default());
+        textarea.set_cursor_style(RatatuiStyle::default());
+
         Input {
-            input: TuiInput::default(),
-            border_type: None, // Default: no border
+            textarea: Mutex::new(textarea),
+            border_type: None,
         }
     }
 
     pub fn with_value<S: Into<String>>(value: S) -> Self {
+        let mut textarea = TextArea::default();
+        textarea.insert_str(&value.into());
+        textarea.set_cursor_line_style(RatatuiStyle::default());
+        textarea.set_cursor_style(RatatuiStyle::default());
+
         Input {
-            input: TuiInput::default().with_value(value.into()),
+            textarea: Mutex::new(textarea),
             border_type: None,
         }
     }
@@ -36,12 +46,14 @@ impl Input {
         self
     }
 
-    pub fn value(&self) -> &str {
-        self.input.value()
+    pub fn value(&self) -> String {
+        self.textarea.lock().unwrap().lines().join("\n")
     }
 
     pub fn set_value<S: Into<String>>(&mut self, value: S) {
-        self.input = TuiInput::default().with_value(value.into());
+        let mut textarea = TextArea::default();
+        textarea.insert_str(&value.into());
+        self.textarea = Mutex::new(textarea);
     }
 }
 
@@ -52,15 +64,15 @@ impl Default for Input {
 }
 
 impl Widget for Input {
-    fn render(&self, f: &mut Frame, area: Rect, style: &Style, _is_focused: bool) {
+    fn render(&self, f: &mut Frame, area: Rect, style: &Style, is_focused: bool) {
         // Apply padding
         let inner_area = style.shrink(area);
 
-        // Show border only if style.border_type is Some
-        let block = if style.border_type.is_some() {
+        // Show border only if needed
+        let block = if self.border_type.is_some() {
             Block::default()
                 .borders(Borders::ALL)
-                .border_type(match style.border_type {
+                .border_type(match self.border_type {
                     Some(BorderType::Plain) => ratatui::widgets::BorderType::Plain,
                     Some(BorderType::Rounded) => ratatui::widgets::BorderType::Rounded,
                     Some(BorderType::Double) => ratatui::widgets::BorderType::Double,
@@ -73,21 +85,20 @@ impl Widget for Input {
 
         // Get the inner area after border
         let value_area = block.inner(inner_area);
-        // Reserve 1 character for cursor display
-        let render_width = value_area.width.saturating_sub(1) as usize;
 
-        // Calculate scroll offset for rendering
-        let scroll_offset = self.input.visual_scroll(render_width);
+        // Render the block border
+        f.render_widget(block, inner_area);
 
-        // Get visible text
-        let visible_text = &self.input.value()[scroll_offset..];
+        // Set cursor style based on focus state
+        let mut textarea = self.textarea.lock().unwrap();
+        if is_focused {
+            textarea.set_cursor_style(RatatuiStyle::default().add_modifier(Modifier::REVERSED));
+        } else {
+            textarea.set_cursor_style(RatatuiStyle::default());
+        }
 
-        // Truncate to fit width
-        let visible_text: String = visible_text.chars().take(render_width).collect();
-
-        // Render the visible portion
-        let paragraph = Paragraph::new(visible_text.as_str()).block(block);
-        f.render_widget(paragraph, inner_area);
+        // Render the textarea (with or without cursor based on focus)
+        f.render_widget(&*textarea, value_area);
     }
 
     fn node_style_hint(&self) -> Option<Style> {
@@ -107,31 +118,12 @@ impl Widget for Input {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> bool {
-        self.input.handle_event(&CrosstermEvent::Key(key)).is_some()
-    }
-
-    fn render_cursor(&self, f: &mut Frame, area: Rect, style: &Style, is_focused: bool) {
-        if is_focused {
-            // Calculate inner area (after padding and border)
-            let inner_area = style.shrink(area);
-            let block = if style.border_type.is_some() {
-                Block::default().borders(Borders::ALL)
-            } else {
-                Block::default()
-            };
-            let value_area = block.inner(inner_area);
-
-            // Same as render: reserve 1 character for cursor
-            let render_width = value_area.width.saturating_sub(1) as usize;
-
-            // Calculate scroll offset (same as render)
-            let scroll_offset = self.input.visual_scroll(render_width);
-
-            // Ensure cursor is always within the rendered area
-            let cursor_x = value_area.left() + ((self.input.cursor() - scroll_offset) as u16);
-            let cursor_y = value_area.top();
-
-            f.set_cursor_position((cursor_x, cursor_y));
+        // Ignore Enter key in single-line mode
+        use crossterm::event::KeyCode;
+        if key.code == KeyCode::Enter {
+            return false;
         }
+        self.textarea.lock().unwrap().input(key);
+        true
     }
 }

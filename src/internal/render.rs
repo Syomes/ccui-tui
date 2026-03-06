@@ -36,17 +36,8 @@ impl RenderLoop {
                 let screen_area = f.area();
                 state.root.layout(screen_area);
 
-                // Then render
-                state.root.render(f);
-
-                // Render cursor for focused widget (if any)
-                if let Some(ref focused_id) = state.focused_id {
-                    if let Some(node) = state.root.find_child_mut(focused_id) {
-                        if let Some(widget) = &node.widget {
-                            widget.render_cursor(f, node.area, &node.style, true);
-                        }
-                    }
-                }
+                // Then render with focus state
+                state.root.render(f, state.focused_id.as_deref());
             });
 
             // Handle UI commands

@@ -63,7 +63,7 @@ impl Node {
         }
     }
 
-    pub fn render(&self, f: &mut Frame) {
+    pub fn render(&self, f: &mut Frame, focused_id: Option<&str>) {
         // Render border for containers (nodes without widget or with children)
         if self.widget.is_none() || !self.children.is_empty() {
             if let Some(border_type) = self.style.border_type {
@@ -89,13 +89,14 @@ impl Node {
 
         // Render widget if present
         if let Some(widget) = &self.widget {
-            let is_focused = false; // TODO: pass focus state from RenderLoop
+            // Check if this node is focused
+            let is_focused = focused_id.map_or(false, |fid| fid == self.id);
             widget.render(f, self.area, &self.style, is_focused);
         }
 
         // Then render all children
         for child in &self.children {
-            child.render(f);
+            child.render(f, focused_id);
         }
     }
 
