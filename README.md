@@ -1,4 +1,5 @@
 # ccui
+> Still v0.0.0 project
 
 An ID-driven TUI framework built on ratatui and tokio.
 
