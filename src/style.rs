@@ -30,13 +30,6 @@ pub enum BorderType {
     Thick,   // ━ ┃ ┏ ┓ ┗ ┛
 }
 
-/// Border configuration.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Border {
-    pub show: bool,
-    pub border_type: BorderType,
-}
-
 /// Spacing offset (padding).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RectOffset {
@@ -75,7 +68,7 @@ pub struct Style {
     pub flex_direction: FlexDirection,
     pub gap: u16,
     pub padding: RectOffset,
-    pub border: Border,
+    pub border_type: Option<BorderType>,
     pub layout_mode: LayoutMode,
 }
 
@@ -110,18 +103,12 @@ impl Style {
     }
 
     pub fn border(mut self, border_type: BorderType) -> Self {
-        self.border = Border {
-            show: true,
-            border_type,
-        };
+        self.border_type = Some(border_type);
         self
     }
 
     pub fn no_border(mut self) -> Self {
-        self.border = Border {
-            show: false,
-            border_type: BorderType::Plain,
-        };
+        self.border_type = None;
         self
     }
 
@@ -149,7 +136,7 @@ impl Style {
 
     /// Shrink the area by border.
     pub fn shrink_border(&self, area: Rect) -> Rect {
-        if !self.border.show {
+        if self.border_type.is_none() {
             return area;
         }
         // Shrink by 1 pixel for border, but allow overlap for border merging

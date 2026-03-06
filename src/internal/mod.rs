@@ -66,12 +66,12 @@ impl Node {
     pub fn render(&self, f: &mut Frame) {
         // Render border for containers (nodes without widget or with children)
         if self.widget.is_none() || !self.children.is_empty() {
-            if self.style.border.show {
+            if let Some(border_type) = self.style.border_type {
                 use crate::style::BorderType;
                 use ratatui::symbols::merge::MergeStrategy;
                 use ratatui::widgets::{Block, BorderType as RatatuiBorderType};
 
-                let border_type = match self.style.border.border_type {
+                let ratatui_border_type = match border_type {
                     BorderType::Plain => RatatuiBorderType::Plain,
                     BorderType::Rounded => RatatuiBorderType::Rounded,
                     BorderType::Double => RatatuiBorderType::Double,
@@ -79,9 +79,9 @@ impl Node {
                 };
 
                 let block = Block::default()
-                    .border_type(border_type)
+                    .border_type(ratatui_border_type)
                     .borders(ratatui::widgets::Borders::ALL)
-                    .merge_borders(MergeStrategy::Exact); // ← 启用边框合并
+                    .merge_borders(MergeStrategy::Exact);
 
                 f.render_widget(block, self.area);
             }
@@ -89,7 +89,8 @@ impl Node {
 
         // Render widget if present
         if let Some(widget) = &self.widget {
-            widget.render(f, self.area, &self.style);
+            let is_focused = false; // TODO: pass focus state from RenderLoop
+            widget.render(f, self.area, &self.style, is_focused);
         }
 
         // Then render all children
@@ -111,11 +112,11 @@ impl Node {
             }
         }
 
-        // Check content area for widget hit testing
-        if self.widget.is_some() && self.content_area.contains((x, y).into()) {
+        // Check if this node has a widget
+        if self.widget.is_some() {
             Some(self.id.clone())
-        } else if self.widget.is_none() {
-            // Container without widget
+        } else if self.children.is_empty() {
+            // Container without widget and children
             Some(self.id.clone())
         } else {
             None
@@ -207,11 +208,19 @@ impl Node {
             let total_w = w
                 + self.style.padding.left
                 + self.style.padding.right
-                + if self.style.border.show { 2 } else { 0 };
+                + if self.style.border_type.is_some() {
+                    2
+                } else {
+                    0
+                };
             let total_h = h
                 + self.style.padding.top
                 + self.style.padding.bottom
-                + if self.style.border.show { 2 } else { 0 };
+                + if self.style.border_type.is_some() {
+                    2
+                } else {
+                    0
+                };
             (total_w, total_h)
         } else if !self.children.is_empty() {
             // Container: calculate based on children + border + padding
@@ -242,11 +251,19 @@ impl Node {
             let total_w = children_w
                 + self.style.padding.left
                 + self.style.padding.right
-                + if self.style.border.show { 2 } else { 0 };
+                + if self.style.border_type.is_some() {
+                    2
+                } else {
+                    0
+                };
             let total_h = children_h
                 + self.style.padding.top
                 + self.style.padding.bottom
-                + if self.style.border.show { 2 } else { 0 };
+                + if self.style.border_type.is_some() {
+                    2
+                } else {
+                    0
+                };
             (total_w, total_h)
         } else {
             // Empty container

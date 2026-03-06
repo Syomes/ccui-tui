@@ -1,6 +1,6 @@
+use crossterm::event::{KeyCode, KeyEvent};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use crossterm::event::{KeyCode, KeyEvent};
 
 /// Unique identifier for an event listener.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -22,6 +22,9 @@ pub enum EventType {
     ScrollUp,
     ScrollDown,
     Hover,
+    Focus,
+    Blur,
+    KeyPress(KeyCode),
 }
 
 /// Context passed to event listeners.
@@ -69,6 +72,11 @@ pub enum UiMessage {
         listener_id: ListenerId,
     },
     RemoveEventListener {
+        listener_id: ListenerId,
+    },
+    AddGlobalListener {
+        event_type: EventType,
+        listener: EventListener,
         listener_id: ListenerId,
     },
 }

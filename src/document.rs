@@ -1,5 +1,6 @@
 use crossterm::{
     ExecutableCommand,
+    event::DisableMouseCapture,
     terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
@@ -56,7 +57,7 @@ impl Drop for Document {
         // Cleanup terminal on exit
         let _ = terminal::disable_raw_mode();
         let _ = std::io::stdout().execute(LeaveAlternateScreen);
-        let _ = std::io::stdout().execute(crossterm::event::DisableMouseCapture);
+        let _ = std::io::stdout().execute(DisableMouseCapture);
     }
 }
 
@@ -72,11 +73,14 @@ impl Container for Document {
             id: id.clone(),
             style: style.clone(),
         })?;
-        self.handles.insert(id.clone(), Handles::Container(ContainerHandle {
-            style: style.clone(),
-            ui_tx: self.ui_tx.clone(),
-            id: id.clone(),
-        }));
+        self.handles.insert(
+            id.clone(),
+            Handles::Container(ContainerHandle {
+                style: style.clone(),
+                ui_tx: self.ui_tx.clone(),
+                id: id.clone(),
+            }),
+        );
         Ok(ContainerHandle {
             style,
             ui_tx: self.ui_tx.clone(),
@@ -97,11 +101,14 @@ impl Container for Document {
             widget: Box::new(widget),
             style: style.clone(),
         })?;
-        self.handles.insert(id.clone(), Handles::Widget(WidgetHandle {
-            style: style.clone(),
-            ui_tx: self.ui_tx.clone(),
-            id: id.clone(),
-        }));
+        self.handles.insert(
+            id.clone(),
+            Handles::Widget(WidgetHandle {
+                style: style.clone(),
+                ui_tx: self.ui_tx.clone(),
+                id: id.clone(),
+            }),
+        );
         Ok(WidgetHandle {
             style,
             ui_tx: self.ui_tx.clone(),
@@ -184,6 +191,27 @@ impl Document {
         self.ui_tx
             .try_send(UiMessage::RemoveEventListener { listener_id })?;
         Ok(())
+    }
+
+    /// Add a global event listener.
+    ///
+    /// Global listeners are always triggered regardless of focus.
+    /// Useful for system shortcuts (ESC to exit, F1 for help, etc.).
+    pub fn add_global_listener<F>(
+        &self,
+        event_type: EventType,
+        listener: F,
+    ) -> Result<ListenerId, mpsc::error::TrySendError<UiMessage>>
+    where
+        F: Fn(EventContext) + Send + Sync + 'static,
+    {
+        let listener_id = ListenerId::new();
+        self.ui_tx.try_send(UiMessage::AddGlobalListener {
+            event_type,
+            listener: Arc::new(listener),
+            listener_id,
+        })?;
+        Ok(listener_id)
     }
 
     pub fn event_receiver(&mut self) -> &mut mpsc::Receiver<Event> {
@@ -270,6 +298,22 @@ impl WidgetHandle {
     pub fn id(&self) -> &str {
         &self.id
     }
+
+    /// Update the widget's style.
+    pub fn update_style<F>(&self, f: F) -> Result<(), mpsc::error::TrySendError<UiMessage>>
+    where
+        F: FnOnce(&mut Style),
+    {
+        let mut new_style = self.style.clone();
+        f(&mut new_style);
+
+        self.ui_tx.try_send(UiMessage::UpdateStyle {
+            id: self.id.clone(),
+            style: new_style.clone(),
+        })?;
+
+        Ok(())
+    }
 }
 
 impl WidgetOps for WidgetHandle {
@@ -319,11 +363,14 @@ impl Ui {
 
         // Initialize handles with root container
         let mut handles = HashMap::new();
-        handles.insert("root".to_string(), Handles::Container(ContainerHandle {
-            style: Style::new().column(),
-            ui_tx: ui_tx.clone(),
-            id: "root".to_string(),
-        }));
+        handles.insert(
+            "root".to_string(),
+            Handles::Container(ContainerHandle {
+                style: Style::new().column(),
+                ui_tx: ui_tx.clone(),
+                id: "root".to_string(),
+            }),
+        );
 
         Ok(Document {
             handles,

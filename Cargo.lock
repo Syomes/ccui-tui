@@ -114,6 +114,7 @@ dependencies = [
  "crossterm",
  "ratatui",
  "tokio",
+ "tui-input",
  "unicode-width",
 ]
 
@@ -1386,6 +1387,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "tui-input"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "79c1ee964298f136020f5f69e0e601f4d3a1f610a7baf1af9fcb96152e8a2c45"
+dependencies = [
+ "ratatui",
+ "unicode-width",
 ]
 
 [[package]]

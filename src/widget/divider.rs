@@ -45,7 +45,7 @@ impl Divider {
 }
 
 impl Widget for Divider {
-    fn render(&self, f: &mut Frame, area: Rect, _style: &Style) {
+    fn render(&self, f: &mut Frame, area: Rect, _style: &Style, _is_focused: bool) {
         // Convert our BorderType to ratatui's BorderType
         let border_type = match self.line_type {
             LineType::Plain => ratatui::widgets::BorderType::Plain,
