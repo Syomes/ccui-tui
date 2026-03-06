@@ -71,9 +71,22 @@ impl Widget for Input {
             Block::default()
         };
 
-        // Render input
-        let paragraph = Paragraph::new(self.input.value()).block(block);
+        // Get the inner area after border
+        let value_area = block.inner(inner_area);
+        // Reserve 1 character for cursor display
+        let render_width = value_area.width.saturating_sub(1) as usize;
 
+        // Calculate scroll offset for rendering
+        let scroll_offset = self.input.visual_scroll(render_width);
+
+        // Get visible text
+        let visible_text = &self.input.value()[scroll_offset..];
+
+        // Truncate to fit width
+        let visible_text: String = visible_text.chars().take(render_width).collect();
+
+        // Render the visible portion
+        let paragraph = Paragraph::new(visible_text.as_str()).block(block);
         f.render_widget(paragraph, inner_area);
     }
 
@@ -86,8 +99,9 @@ impl Widget for Input {
     }
 
     fn content_size(&self, _area: Rect) -> (u16, u16) {
-        // Input width: content length, height: 1 for text
-        let width = self.input.value().len() as u16;
+        // Input has a fixed width of 10 characters
+        // Height is always 1 for single-line input
+        let width = 10u16;
         let height = 1u16;
         (width, height)
     }
@@ -98,14 +112,24 @@ impl Widget for Input {
 
     fn render_cursor(&self, f: &mut Frame, area: Rect, style: &Style, is_focused: bool) {
         if is_focused {
-            // Calculate inner area (after padding)
+            // Calculate inner area (after padding and border)
             let inner_area = style.shrink(area);
+            let block = if style.border_type.is_some() {
+                Block::default().borders(Borders::ALL)
+            } else {
+                Block::default()
+            };
+            let value_area = block.inner(inner_area);
 
-            // Border offset (1px if border is shown)
-            let border_offset = if style.border_type.is_some() { 1 } else { 0 };
+            // Same as render: reserve 1 character for cursor
+            let render_width = value_area.width.saturating_sub(1) as usize;
 
-            let cursor_x = inner_area.left() + border_offset + (self.input.visual_cursor() as u16);
-            let cursor_y = inner_area.top() + border_offset;
+            // Calculate scroll offset (same as render)
+            let scroll_offset = self.input.visual_scroll(render_width);
+
+            // Ensure cursor is always within the rendered area
+            let cursor_x = value_area.left() + ((self.input.cursor() - scroll_offset) as u16);
+            let cursor_y = value_area.top();
 
             f.set_cursor_position((cursor_x, cursor_y));
         }
