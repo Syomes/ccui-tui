@@ -111,6 +111,17 @@ impl RenderLoop {
                                     if let Some(widget) = &mut node.widget {
                                         widget.handle_key(key);
                                     }
+
+                                    // Trigger key press event listeners on the node
+                                    let ctx = EventContext {
+                                        event_type: EventType::KeyPress(key.code),
+                                        target_id: focused_id.clone(),
+                                        mouse_x: None,
+                                        mouse_y: None,
+                                        scroll_delta: None,
+                                        key_code: Some(key.code),
+                                    };
+                                    node.trigger_event(&EventType::KeyPress(key.code), ctx);
                                 }
                             }
 
