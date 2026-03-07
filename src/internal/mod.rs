@@ -83,6 +83,13 @@ impl Node {
     }
 
     pub fn render(&self, f: &mut Frame, focused_id: Option<&str>) {
+        // Render background if bg_color is set
+        if let Some(bg_color) = self.style.bg_color {
+            let block = ratatui::widgets::Block::default()
+                .style(ratatui::style::Style::default().bg(bg_color.into()));
+            f.render_widget(block, self.area);
+        }
+
         // Render border for containers (nodes without widget or with children)
         if self.widget.is_none() || !self.children.is_empty() {
             if let Some(border_type) = self.style.border_type {

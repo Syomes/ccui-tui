@@ -1,5 +1,38 @@
 use ratatui::layout::Rect;
 
+/// Color for background and foreground.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Color {
+    #[default]
+    Reset,
+    Black,
+    Red,
+    Green,
+    Yellow,
+    Blue,
+    Magenta,
+    Cyan,
+    White,
+    Rgb(u8, u8, u8),
+}
+
+impl From<Color> for ratatui::style::Color {
+    fn from(ccui_color: Color) -> Self {
+        match ccui_color {
+            Color::Reset => ratatui::style::Color::Reset,
+            Color::Black => ratatui::style::Color::Black,
+            Color::Red => ratatui::style::Color::Red,
+            Color::Green => ratatui::style::Color::Green,
+            Color::Yellow => ratatui::style::Color::Yellow,
+            Color::Blue => ratatui::style::Color::Blue,
+            Color::Magenta => ratatui::style::Color::Magenta,
+            Color::Cyan => ratatui::style::Color::Cyan,
+            Color::White => ratatui::style::Color::White,
+            Color::Rgb(r, g, b) => ratatui::style::Color::Rgb(r, g, b),
+        }
+    }
+}
+
 /// Position mode for containers - how the container positions itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PositionMode {
@@ -87,6 +120,9 @@ pub struct Style {
     pub y: u16,
     pub width: u16,  // 0 = use parent width
     pub height: u16, // 0 = use parent height
+
+    // Background color (None = transparent)
+    pub bg_color: Option<Color>,
 }
 
 impl Style {
@@ -160,6 +196,18 @@ impl Style {
     pub fn size(mut self, width: u16, height: u16) -> Self {
         self.width = width;
         self.height = height;
+        self
+    }
+
+    /// Set background color.
+    pub fn bg_color(mut self, color: Color) -> Self {
+        self.bg_color = Some(color);
+        self
+    }
+
+    /// Remove background color (transparent).
+    pub fn no_bg(mut self) -> Self {
+        self.bg_color = None;
         self
     }
 
