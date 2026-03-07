@@ -3,6 +3,8 @@ use crossterm::event::KeyEvent;
 use ratatui::{Frame, layout::Rect};
 use tokio::sync::mpsc;
 
+use crate::event::UiMessage;
+
 /// Widget type identifier.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum WidgetKind {
@@ -14,11 +16,15 @@ pub enum WidgetKind {
 
 /// Trait to associate a Widget with its Handle type.
 pub trait WidgetType {
-    type Handle;
+    type Handle: crate::document::WidgetHandle;
 
     fn kind() -> WidgetKind;
 
-    fn create_handle(id: String, ui_tx: mpsc::Sender<crate::event::UiMessage>) -> Self::Handle;
+    fn create_handle(
+        id: String,
+        ui_tx: mpsc::Sender<UiMessage>,
+        style: crate::style::Style,
+    ) -> Self::Handle;
 }
 
 /// A renderable widget that can be displayed in a terminal area.

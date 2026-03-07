@@ -32,7 +32,20 @@ impl WidgetMessage for InputMessage {
 #[derive(Clone)]
 pub struct InputHandle {
     id: String,
+    style: crate::style::Style,
     ui_tx: mpsc::Sender<UiMessage>,
+}
+
+impl crate::document::WidgetHandle for InputHandle {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn style(&self) -> &crate::style::Style {
+        &self.style
+    }
+    fn ui_tx(&self) -> &mpsc::Sender<UiMessage> {
+        &self.ui_tx
+    }
 }
 
 impl InputHandle {
@@ -59,11 +72,6 @@ impl InputHandle {
     pub fn unmasked(&self) -> Result<(), mpsc::error::TrySendError<UiMessage>> {
         self.set_masked(None)
     }
-
-    /// Get the input ID.
-    pub fn id(&self) -> &str {
-        &self.id
-    }
 }
 
 impl WidgetType for Input {
@@ -73,8 +81,12 @@ impl WidgetType for Input {
         WidgetKind::Input
     }
 
-    fn create_handle(id: String, ui_tx: mpsc::Sender<UiMessage>) -> Self::Handle {
-        InputHandle { id, ui_tx }
+    fn create_handle(
+        id: String,
+        ui_tx: mpsc::Sender<UiMessage>,
+        style: crate::style::Style,
+    ) -> Self::Handle {
+        InputHandle { id, style, ui_tx }
     }
 }
 

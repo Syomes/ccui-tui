@@ -27,14 +27,34 @@ pub trait Container {
     ) -> Result<C::Handle, mpsc::error::TrySendError<UiMessage>>;
 }
 
-/// Operations available on a widget handle.
-pub trait WidgetOps {
-    fn update<C: Widget + 'static>(
-        &self,
-        widget: C,
-    ) -> Result<(), mpsc::error::TrySendError<UiMessage>>;
+/// Base trait for all widget handles.
+pub trait WidgetHandle: Clone + Send + 'static {
+    fn id(&self) -> &str;
+    fn style(&self) -> &Style;
+    fn ui_tx(&self) -> &mpsc::Sender<UiMessage>;
 
-    fn remove(self) -> Result<(), mpsc::error::TrySendError<UiMessage>>;
+    /// Update the widget's style.
+    fn update_style<F>(&self, f: F) -> Result<(), mpsc::error::TrySendError<UiMessage>>
+    where
+        F: FnOnce(&mut Style),
+    {
+        let mut new_style = self.style().clone();
+        f(&mut new_style);
+
+        self.ui_tx().try_send(UiMessage::UpdateStyle {
+            id: self.id().into(),
+            style: new_style.clone(),
+        })?;
+
+        Ok(())
+    }
+
+    /// Remove the widget.
+    fn remove(self) -> Result<(), mpsc::error::TrySendError<UiMessage>> {
+        self.ui_tx()
+            .try_send(UiMessage::RemoveWidget(self.id().into()))?;
+        Ok(())
+    }
 }
 
 /// Handle to the UI system.
@@ -92,7 +112,7 @@ impl Container for Document {
         })?;
 
         // Create and return the specific Handle type
-        let handle = C::create_handle(id, self.ui_tx.clone());
+        let handle = C::create_handle(id, self.ui_tx.clone(), style);
         Ok(handle)
     }
 }
@@ -251,56 +271,8 @@ impl Container for ContainerHandle {
         })?;
 
         // Create and return the specific Handle type
-        let handle = C::create_handle(id, self.ui_tx.clone());
+        let handle = C::create_handle(id, self.ui_tx.clone(), style);
         Ok(handle)
-    }
-}
-
-/// Handle to a widget.
-#[derive(Clone)]
-pub struct WidgetHandle {
-    pub style: Style,
-    ui_tx: mpsc::Sender<UiMessage>,
-    id: String,
-}
-
-impl WidgetHandle {
-    pub fn id(&self) -> &str {
-        &self.id
-    }
-
-    /// Update the widget's style.
-    pub fn update_style<F>(&self, f: F) -> Result<(), mpsc::error::TrySendError<UiMessage>>
-    where
-        F: FnOnce(&mut Style),
-    {
-        let mut new_style = self.style.clone();
-        f(&mut new_style);
-
-        self.ui_tx.try_send(UiMessage::UpdateStyle {
-            id: self.id.clone(),
-            style: new_style.clone(),
-        })?;
-
-        Ok(())
-    }
-}
-
-impl WidgetOps for WidgetHandle {
-    fn update<C: Widget + 'static>(
-        &self,
-        widget: C,
-    ) -> Result<(), mpsc::error::TrySendError<UiMessage>> {
-        self.ui_tx.try_send(UiMessage::UpdateWidget {
-            id: self.id.clone(),
-            widget: Box::new(widget),
-        })?;
-        Ok(())
-    }
-
-    fn remove(self) -> Result<(), mpsc::error::TrySendError<UiMessage>> {
-        self.ui_tx.try_send(UiMessage::RemoveWidget(self.id))?;
-        Ok(())
     }
 }
 

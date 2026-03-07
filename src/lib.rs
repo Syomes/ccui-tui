@@ -42,4 +42,4 @@ pub mod style;
 pub mod util;
 pub mod widget;
 
-pub use document::{Container, ContainerHandle, Document, Ui, WidgetHandle, WidgetOps};
+pub use document::{Container, ContainerHandle, Document, Ui, WidgetHandle};

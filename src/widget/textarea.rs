@@ -32,7 +32,20 @@ impl WidgetMessage for TextareaMessage {
 #[derive(Clone)]
 pub struct TextareaHandle {
     id: String,
+    style: crate::style::Style,
     ui_tx: mpsc::Sender<UiMessage>,
+}
+
+impl crate::document::WidgetHandle for TextareaHandle {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn style(&self) -> &crate::style::Style {
+        &self.style
+    }
+    fn ui_tx(&self) -> &mpsc::Sender<UiMessage> {
+        &self.ui_tx
+    }
 }
 
 impl TextareaHandle {
@@ -44,11 +57,6 @@ impl TextareaHandle {
         })?;
         Ok(())
     }
-
-    /// Get the textarea ID.
-    pub fn id(&self) -> &str {
-        &self.id
-    }
 }
 
 impl WidgetType for Textarea {
@@ -58,8 +66,12 @@ impl WidgetType for Textarea {
         WidgetKind::Textarea
     }
 
-    fn create_handle(id: String, ui_tx: mpsc::Sender<UiMessage>) -> Self::Handle {
-        TextareaHandle { id, ui_tx }
+    fn create_handle(
+        id: String,
+        ui_tx: mpsc::Sender<UiMessage>,
+        style: crate::style::Style,
+    ) -> Self::Handle {
+        TextareaHandle { id, style, ui_tx }
     }
 }
 
