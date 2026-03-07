@@ -112,6 +112,7 @@ name = "ccui"
 version = "0.1.0"
 dependencies = [
  "crossterm",
+ "once_cell",
  "parking_lot",
  "ratatui",
  "ratatui-textarea",
