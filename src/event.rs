@@ -13,6 +13,14 @@ impl ListenerId {
     }
 }
 
+/// Trait for widget-specific messages.
+/// Each widget defines its own message types and implements this trait.
+pub trait WidgetMessage: Send + 'static {
+    /// Apply this message to a widget.
+    /// Called in the RenderLoop thread.
+    fn apply(self: Box<Self>, widget: &mut dyn crate::widget::Widget);
+}
+
 /// Event types that can be listened to.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum EventType {
@@ -78,6 +86,12 @@ pub enum UiMessage {
         event_type: EventType,
         listener: EventListener,
         listener_id: ListenerId,
+    },
+
+    // Widget-specific messages
+    WidgetMessage {
+        id: String,
+        message: Box<dyn WidgetMessage>,
     },
 
     // Mouse capture toggle

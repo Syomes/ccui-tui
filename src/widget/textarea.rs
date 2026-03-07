@@ -1,5 +1,6 @@
+use crate::event::{UiMessage, WidgetMessage};
 use crate::style::{BorderType, Style};
-use crate::widget::Widget;
+use crate::widget::{Widget, WidgetKind, WidgetType};
 use crossterm::event::KeyEvent;
 use ratatui::{
     Frame,
@@ -8,7 +9,59 @@ use ratatui::{
     widgets::{Block, Borders},
 };
 use ratatui_textarea::TextArea;
+use std::any::Any;
 use std::sync::Mutex;
+use tokio::sync::mpsc;
+
+/// Messages for Textarea widget.
+pub enum TextareaMessage {
+    SetHeight(u16),
+}
+
+impl WidgetMessage for TextareaMessage {
+    fn apply(self: Box<Self>, widget: &mut dyn Widget) {
+        if let Some(textarea) = widget.as_any_mut().downcast_mut::<Textarea>() {
+            match *self {
+                TextareaMessage::SetHeight(h) => textarea.height = h,
+            }
+        }
+    }
+}
+
+/// Handle for controlling a Textarea widget.
+#[derive(Clone)]
+pub struct TextareaHandle {
+    id: String,
+    ui_tx: mpsc::Sender<UiMessage>,
+}
+
+impl TextareaHandle {
+    /// Set the height of the textarea.
+    pub fn set_height(&self, height: u16) -> Result<(), mpsc::error::TrySendError<UiMessage>> {
+        self.ui_tx.try_send(UiMessage::WidgetMessage {
+            id: self.id.clone(),
+            message: Box::new(TextareaMessage::SetHeight(height)),
+        })?;
+        Ok(())
+    }
+
+    /// Get the textarea ID.
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl WidgetType for Textarea {
+    type Handle = TextareaHandle;
+
+    fn kind() -> WidgetKind {
+        WidgetKind::Textarea
+    }
+
+    fn create_handle(id: String, ui_tx: mpsc::Sender<UiMessage>) -> Self::Handle {
+        TextareaHandle { id, ui_tx }
+    }
+}
 
 /// A multi-line text input widget.
 pub struct Textarea {
@@ -130,5 +183,9 @@ impl Widget for Textarea {
         // Enter key inserts newline in multi-line mode
         self.textarea.lock().unwrap().input(key);
         true
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
     }
 }

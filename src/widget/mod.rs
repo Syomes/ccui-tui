@@ -1,6 +1,25 @@
 use crate::style::Style;
 use crossterm::event::KeyEvent;
 use ratatui::{Frame, layout::Rect};
+use tokio::sync::mpsc;
+
+/// Widget type identifier.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum WidgetKind {
+    Input,
+    Textarea,
+    Text,
+    Divider,
+}
+
+/// Trait to associate a Widget with its Handle type.
+pub trait WidgetType {
+    type Handle;
+
+    fn kind() -> WidgetKind;
+
+    fn create_handle(id: String, ui_tx: mpsc::Sender<crate::event::UiMessage>) -> Self::Handle;
+}
 
 /// A renderable widget that can be displayed in a terminal area.
 pub trait Widget: Send + Sync {
@@ -41,6 +60,9 @@ pub trait Widget: Send + Sync {
     fn render_cursor(&self, _f: &mut Frame, _area: Rect, _style: &Style, _is_focused: bool) {
         // Default: no cursor
     }
+
+    /// Get mutable reference as Any for downcasting.
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
 }
 
 pub mod divider;
@@ -49,6 +71,6 @@ pub mod text;
 pub mod textarea;
 
 pub use divider::{Direction, Divider};
-pub use input::Input;
+pub use input::{Input, InputHandle};
 pub use text::Text;
-pub use textarea::Textarea;
+pub use textarea::{Textarea, TextareaHandle};

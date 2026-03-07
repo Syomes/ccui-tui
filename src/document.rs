@@ -10,7 +10,7 @@ use crate::event::{Event, EventContext, EventType, ListenerId, UiMessage};
 use crate::internal::RenderLoop;
 use crate::style::Style;
 use crate::widget::Widget;
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 /// A container that can hold widgets and other containers.
 pub trait Container {
@@ -20,11 +20,11 @@ pub trait Container {
         style: Style,
     ) -> Result<ContainerHandle, mpsc::error::TrySendError<UiMessage>>;
 
-    fn add_widget<C: Widget + 'static>(
+    fn add_widget<C: Widget + crate::widget::WidgetType + 'static>(
         &mut self,
         id: impl Into<String>,
         widget: C,
-    ) -> Result<WidgetHandle, mpsc::error::TrySendError<UiMessage>>;
+    ) -> Result<C::Handle, mpsc::error::TrySendError<UiMessage>>;
 }
 
 /// Operations available on a widget handle.
@@ -37,17 +37,12 @@ pub trait WidgetOps {
     fn remove(self) -> Result<(), mpsc::error::TrySendError<UiMessage>>;
 }
 
-pub enum Handles {
-    Container(ContainerHandle),
-    Widget(WidgetHandle),
-}
-
 /// Handle to the UI system.
 ///
 /// `Document` serves as the event bus for the UI.
 /// When `Document` is dropped, the terminal is automatically restored to its original state.
 pub struct Document {
-    handles: HashMap<String, Handles>,
+    containers: HashMap<String, ContainerHandle>,
     ui_tx: mpsc::Sender<UiMessage>,
     event_rx: mpsc::Receiver<Event>,
 }
@@ -73,26 +68,20 @@ impl Container for Document {
             id: id.clone(),
             style: style.clone(),
         })?;
-        self.handles.insert(
-            id.clone(),
-            Handles::Container(ContainerHandle {
-                style: style.clone(),
-                ui_tx: self.ui_tx.clone(),
-                id: id.clone(),
-            }),
-        );
-        Ok(ContainerHandle {
-            style,
+        let handle = ContainerHandle {
+            style: style.clone(),
             ui_tx: self.ui_tx.clone(),
-            id,
-        })
+            id: id.clone(),
+        };
+        self.containers.insert(id.clone(), handle.clone());
+        Ok(handle)
     }
 
-    fn add_widget<C: Widget + 'static>(
+    fn add_widget<C: Widget + crate::widget::WidgetType + 'static>(
         &mut self,
         id: impl Into<String>,
         widget: C,
-    ) -> Result<WidgetHandle, mpsc::error::TrySendError<UiMessage>> {
+    ) -> Result<C::Handle, mpsc::error::TrySendError<UiMessage>> {
         let id = id.into();
         let style = widget.node_style_hint().unwrap_or_default();
         self.ui_tx.try_send(UiMessage::AddWidget {
@@ -101,43 +90,16 @@ impl Container for Document {
             widget: Box::new(widget),
             style: style.clone(),
         })?;
-        self.handles.insert(
-            id.clone(),
-            Handles::Widget(WidgetHandle {
-                style: style.clone(),
-                ui_tx: self.ui_tx.clone(),
-                id: id.clone(),
-            }),
-        );
-        Ok(WidgetHandle {
-            style,
-            ui_tx: self.ui_tx.clone(),
-            id,
-        })
+
+        // Create and return the specific Handle type
+        let handle = C::create_handle(id, self.ui_tx.clone());
+        Ok(handle)
     }
 }
 
 impl Document {
     pub fn get_container(&mut self, id: impl Into<String>) -> Option<&mut ContainerHandle> {
-        if let Some(h) = self.handles.get_mut(id.into().as_str()) {
-            match h {
-                Handles::Container(h) => Some(h),
-                _ => None,
-            }
-        } else {
-            None
-        }
-    }
-
-    pub fn get_widget(&mut self, id: impl Into<String>) -> Option<&mut WidgetHandle> {
-        if let Some(h) = self.handles.get_mut(id.into().as_str()) {
-            match h {
-                Handles::Widget(h) => Some(h),
-                _ => None,
-            }
-        } else {
-            None
-        }
+        self.containers.get_mut(id.into().as_str())
     }
 
     pub fn update_widget<C: Widget + 'static>(
@@ -177,7 +139,7 @@ impl Document {
         self.ui_tx.try_send(UiMessage::AddEventListener {
             target_id: target_id.into(),
             event_type,
-            listener: Arc::new(listener),
+            listener: std::sync::Arc::new(listener),
             listener_id,
         })?;
         Ok(listener_id)
@@ -208,7 +170,7 @@ impl Document {
         let listener_id = ListenerId::new();
         self.ui_tx.try_send(UiMessage::AddGlobalListener {
             event_type,
-            listener: Arc::new(listener),
+            listener: std::sync::Arc::new(listener),
             listener_id,
         })?;
         Ok(listener_id)
@@ -274,11 +236,11 @@ impl Container for ContainerHandle {
         })
     }
 
-    fn add_widget<C: Widget + 'static>(
+    fn add_widget<C: Widget + crate::widget::WidgetType + 'static>(
         &mut self,
         id: impl Into<String>,
         widget: C,
-    ) -> Result<WidgetHandle, mpsc::error::TrySendError<UiMessage>> {
+    ) -> Result<C::Handle, mpsc::error::TrySendError<UiMessage>> {
         let id = id.into();
         let style = widget.node_style_hint().unwrap_or_default();
         self.ui_tx.try_send(UiMessage::AddWidget {
@@ -287,11 +249,10 @@ impl Container for ContainerHandle {
             widget: Box::new(widget),
             style: style.clone(),
         })?;
-        Ok(WidgetHandle {
-            style,
-            ui_tx: self.ui_tx.clone(),
-            id,
-        })
+
+        // Create and return the specific Handle type
+        let handle = C::create_handle(id, self.ui_tx.clone());
+        Ok(handle)
     }
 }
 
@@ -370,19 +331,19 @@ impl Ui {
             }
         });
 
-        // Initialize handles with root container
-        let mut handles = HashMap::new();
-        handles.insert(
+        // Initialize containers with root container
+        let mut containers = HashMap::new();
+        containers.insert(
             "root".to_string(),
-            Handles::Container(ContainerHandle {
+            ContainerHandle {
                 style: Style::new().column(),
                 ui_tx: ui_tx.clone(),
                 id: "root".to_string(),
-            }),
+            },
         );
 
         Ok(Document {
-            handles,
+            containers,
             ui_tx,
             event_rx,
         })

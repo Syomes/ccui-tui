@@ -1,5 +1,6 @@
+use crate::event::{UiMessage, WidgetMessage};
 use crate::style::{BorderType, Style};
-use crate::widget::Widget;
+use crate::widget::{Widget, WidgetKind, WidgetType};
 use crossterm::event::KeyEvent;
 use ratatui::{
     Frame,
@@ -8,7 +9,74 @@ use ratatui::{
     widgets::{Block, Borders},
 };
 use ratatui_textarea::TextArea;
+use std::any::Any;
 use std::sync::Mutex;
+use tokio::sync::mpsc;
+
+/// Messages for Input widget.
+pub enum InputMessage {
+    SetMask(Option<char>),
+}
+
+impl WidgetMessage for InputMessage {
+    fn apply(self: Box<Self>, widget: &mut dyn Widget) {
+        if let Some(input) = widget.as_any_mut().downcast_mut::<Input>() {
+            match *self {
+                InputMessage::SetMask(ch) => input.mask_char = ch,
+            }
+        }
+    }
+}
+
+/// Handle for controlling an Input widget.
+#[derive(Clone)]
+pub struct InputHandle {
+    id: String,
+    ui_tx: mpsc::Sender<UiMessage>,
+}
+
+impl InputHandle {
+    /// Set the mask character for password input.
+    pub fn set_masked(&self, ch: Option<char>) -> Result<(), mpsc::error::TrySendError<UiMessage>> {
+        self.ui_tx.try_send(UiMessage::WidgetMessage {
+            id: self.id.clone(),
+            message: Box::new(InputMessage::SetMask(ch)),
+        })?;
+        Ok(())
+    }
+
+    /// Enable masking with default character '*'.
+    pub fn masked(&self) -> Result<(), mpsc::error::TrySendError<UiMessage>> {
+        self.set_masked(Some('*'))
+    }
+
+    /// Enable masking with custom character.
+    pub fn masked_with(&self, ch: char) -> Result<(), mpsc::error::TrySendError<UiMessage>> {
+        self.set_masked(Some(ch))
+    }
+
+    /// Disable masking.
+    pub fn unmasked(&self) -> Result<(), mpsc::error::TrySendError<UiMessage>> {
+        self.set_masked(None)
+    }
+
+    /// Get the input ID.
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl WidgetType for Input {
+    type Handle = InputHandle;
+
+    fn kind() -> WidgetKind {
+        WidgetKind::Input
+    }
+
+    fn create_handle(id: String, ui_tx: mpsc::Sender<UiMessage>) -> Self::Handle {
+        InputHandle { id, ui_tx }
+    }
+}
 
 /// An input field widget that accepts text input (single-line mode).
 pub struct Input {
@@ -152,5 +220,9 @@ impl Widget for Input {
         }
         self.textarea.lock().unwrap().input(key);
         true
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
     }
 }

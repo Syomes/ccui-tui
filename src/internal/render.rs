@@ -107,6 +107,14 @@ impl RenderLoop {
                             let _ = std::io::stdout().execute(DisableMouseCapture);
                         }
                     }
+                    UiMessage::WidgetMessage { id, message } => {
+                        // Widget-specific message: let the widget handle it
+                        if let Some(node) = state.root.find_child_mut(&id) {
+                            if let Some(widget) = &mut node.widget {
+                                message.apply(&mut **widget);
+                            }
+                        }
+                    }
                 }
             }
 

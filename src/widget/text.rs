@@ -64,4 +64,8 @@ impl Widget for Text {
             total_lines as u16,
         )
     }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
 }
