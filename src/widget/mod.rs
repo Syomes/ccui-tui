@@ -46,7 +46,9 @@ pub trait Widget: Send + Sync {
 pub mod divider;
 pub mod input;
 pub mod text;
+pub mod textarea;
 
 pub use divider::{Direction, Divider};
 pub use input::Input;
 pub use text::Text;
+pub use textarea::Textarea;
