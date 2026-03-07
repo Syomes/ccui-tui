@@ -43,8 +43,27 @@ impl Node {
 
     /// Layout the tree starting from this node.
     pub fn layout(&mut self, parent_area: Rect) {
-        // Calculate this node's area
-        self.area = parent_area;
+        // Calculate this node's area based on position_mode
+        self.area = if self.style.position_mode == crate::style::PositionMode::Floating {
+            // Floating: use x, y, width, height from style
+            Rect::new(
+                self.style.x,
+                self.style.y,
+                if self.style.width == 0 {
+                    parent_area.width
+                } else {
+                    self.style.width
+                },
+                if self.style.height == 0 {
+                    parent_area.height
+                } else {
+                    self.style.height
+                },
+            )
+        } else {
+            // Normal: use parent_area
+            parent_area
+        };
 
         // Calculate content area
         if let Some(widget) = &self.widget {

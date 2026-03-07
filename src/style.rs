@@ -1,6 +1,16 @@
 use ratatui::layout::Rect;
 
-/// Layout mode for containers.
+/// Position mode for containers - how the container positions itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PositionMode {
+    /// Position is determined by the parent (default).
+    #[default]
+    Normal,
+    /// Position is determined by x, y coordinates (floating window).
+    Floating,
+}
+
+/// Layout mode for containers - how children are arranged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LayoutMode {
     /// Children are tiled to fill the available space (default).
@@ -70,6 +80,13 @@ pub struct Style {
     pub padding: RectOffset,
     pub border_type: Option<BorderType>,
     pub layout_mode: LayoutMode,
+
+    // Position mode (for floating windows)
+    pub position_mode: PositionMode,
+    pub x: u16,
+    pub y: u16,
+    pub width: u16,  // 0 = use parent width
+    pub height: u16, // 0 = use parent height
 }
 
 impl Style {
@@ -119,6 +136,30 @@ impl Style {
 
     pub fn auto(mut self) -> Self {
         self.layout_mode = LayoutMode::Auto;
+        self
+    }
+
+    /// Set position mode to Floating with default values.
+    pub fn floating(mut self) -> Self {
+        self.position_mode = PositionMode::Floating;
+        self.x = 0;
+        self.y = 0;
+        self.width = 0; // 0 = use parent width
+        self.height = 0; // 0 = use parent height
+        self
+    }
+
+    /// Set floating position.
+    pub fn position(mut self, x: u16, y: u16) -> Self {
+        self.x = x;
+        self.y = y;
+        self
+    }
+
+    /// Set floating size (0 = use parent size).
+    pub fn size(mut self, width: u16, height: u16) -> Self {
+        self.width = width;
+        self.height = height;
         self
     }
 
@@ -182,11 +223,26 @@ impl Style {
             .height
             .saturating_sub(self.padding.top + self.padding.bottom);
 
-        // Calculate fixed size from size hints
+        // Count non-floating children for size calculation
+        let non_floating_count = children
+            .iter()
+            .filter(|child| child.style.position_mode != crate::style::PositionMode::Floating)
+            .count();
+
+        if non_floating_count == 0 {
+            // All children are floating, return parent_area for all
+            return vec![parent_area; children.len()];
+        }
+
+        // Calculate fixed size from size hints (only non-floating children)
         let mut fixed_size = 0u16;
         let mut flexible_count = 0u16;
 
         for child in children {
+            if child.style.position_mode == crate::style::PositionMode::Floating {
+                continue; // Skip floating children
+            }
+
             if let Some(widget) = &child.widget {
                 if let Some((w, h)) = widget.size_hint() {
                     match self.flex_direction {
@@ -233,38 +289,43 @@ impl Style {
         };
 
         for child in children {
-            let size = if let Some(widget) = &child.widget {
-                if let Some((w, h)) = widget.size_hint() {
-                    match self.flex_direction {
-                        FlexDirection::Row => {
-                            if w > 0 {
-                                w
-                            } else {
-                                flexible_size
+            if child.style.position_mode == crate::style::PositionMode::Floating {
+                // Floating child: give parent_area
+                areas.push(parent_area);
+            } else {
+                let size = if let Some(widget) = &child.widget {
+                    if let Some((w, h)) = widget.size_hint() {
+                        match self.flex_direction {
+                            FlexDirection::Row => {
+                                if w > 0 {
+                                    w
+                                } else {
+                                    flexible_size
+                                }
+                            }
+                            FlexDirection::Column => {
+                                if h > 0 {
+                                    h
+                                } else {
+                                    flexible_size
+                                }
                             }
                         }
-                        FlexDirection::Column => {
-                            if h > 0 {
-                                h
-                            } else {
-                                flexible_size
-                            }
-                        }
+                    } else {
+                        flexible_size
                     }
                 } else {
                     flexible_size
-                }
-            } else {
-                flexible_size
-            };
+                };
 
-            let area = match self.flex_direction {
-                FlexDirection::Row => Rect::new(pos, content_y, size, content_h),
-                FlexDirection::Column => Rect::new(content_x, pos, content_w, size),
-            };
+                let area = match self.flex_direction {
+                    FlexDirection::Row => Rect::new(pos, content_y, size, content_h),
+                    FlexDirection::Column => Rect::new(content_x, pos, content_w, size),
+                };
 
-            areas.push(area);
-            pos += size;
+                areas.push(area);
+                pos += size;
+            }
         }
 
         areas
@@ -300,20 +361,25 @@ impl Style {
         };
 
         for child in children {
-            // Get child size (recursive for containers)
-            let (child_w, child_h) =
-                child.calculate_content_size(Rect::new(0, 0, content_w, content_h));
+            if child.style.position_mode == crate::style::PositionMode::Floating {
+                // Floating child: give parent_area
+                areas.push(parent_area);
+            } else {
+                // Get child size (recursive for containers)
+                let (child_w, child_h) =
+                    child.calculate_content_size(Rect::new(0, 0, content_w, content_h));
 
-            let area = match self.flex_direction {
-                FlexDirection::Row => Rect::new(pos, content_y, child_w, content_h),
-                FlexDirection::Column => Rect::new(content_x, pos, content_w, child_h),
-            };
-            areas.push(area);
+                let area = match self.flex_direction {
+                    FlexDirection::Row => Rect::new(pos, content_y, child_w, content_h),
+                    FlexDirection::Column => Rect::new(content_x, pos, content_w, child_h),
+                };
+                areas.push(area);
 
-            // Move position
-            match self.flex_direction {
-                FlexDirection::Row => pos += child_w + self.gap,
-                FlexDirection::Column => pos += child_h + self.gap,
+                // Move position
+                match self.flex_direction {
+                    FlexDirection::Row => pos += child_w + self.gap,
+                    FlexDirection::Column => pos += child_h + self.gap,
+                }
             }
         }
 
