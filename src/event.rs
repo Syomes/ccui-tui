@@ -79,6 +79,9 @@ pub enum UiMessage {
         listener: EventListener,
         listener_id: ListenerId,
     },
+
+    // Mouse capture toggle
+    ToggleMouseCapture,
 }
 
 /// Events received from the terminal (keyboard, mouse, resize).

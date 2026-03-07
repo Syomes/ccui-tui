@@ -1,4 +1,7 @@
-use crossterm::event::{KeyEvent, MouseEventKind};
+use crossterm::{
+    ExecutableCommand,
+    event::{DisableMouseCapture, EnableMouseCapture, KeyEvent, MouseEventKind},
+};
 use ratatui::{Terminal, backend::CrosstermBackend};
 use tokio::sync::mpsc;
 
@@ -10,6 +13,7 @@ use std::collections::HashMap;
 pub struct RenderLoop {
     root: Node,
     focused_id: Option<String>,
+    mouse_capture_enabled: bool,
     global_listeners: HashMap<EventType, Vec<(ListenerId, crate::event::EventListener)>>,
 }
 
@@ -18,6 +22,7 @@ impl RenderLoop {
         RenderLoop {
             root: Node::new("root".to_string()),
             focused_id: None,
+            mouse_capture_enabled: true, // Default: enabled
             global_listeners: HashMap::new(),
         }
     }
@@ -93,6 +98,14 @@ impl RenderLoop {
                             .entry(event_type)
                             .or_insert_with(Vec::new)
                             .push((listener_id, listener));
+                    }
+                    UiMessage::ToggleMouseCapture => {
+                        state.mouse_capture_enabled = !state.mouse_capture_enabled;
+                        if state.mouse_capture_enabled {
+                            let _ = std::io::stdout().execute(EnableMouseCapture);
+                        } else {
+                            let _ = std::io::stdout().execute(DisableMouseCapture);
+                        }
                     }
                 }
             }

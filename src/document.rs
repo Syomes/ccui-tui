@@ -214,6 +214,15 @@ impl Document {
         Ok(listener_id)
     }
 
+    /// Toggle mouse capture on/off.
+    ///
+    /// When mouse capture is off, the terminal handles mouse events natively
+    /// (text selection, copy, etc.). When on, the framework handles mouse events.
+    pub fn toggle_mouse_capture(&self) -> Result<(), mpsc::error::TrySendError<UiMessage>> {
+        self.ui_tx.try_send(UiMessage::ToggleMouseCapture)?;
+        Ok(())
+    }
+
     pub fn event_receiver(&mut self) -> &mut mpsc::Receiver<Event> {
         &mut self.event_rx
     }
