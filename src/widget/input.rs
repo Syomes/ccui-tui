@@ -14,6 +14,7 @@ use std::sync::Mutex;
 pub struct Input {
     textarea: Mutex<TextArea<'static>>,
     border_type: Option<BorderType>,
+    mask_char: Option<char>,
 }
 
 impl Input {
@@ -25,6 +26,7 @@ impl Input {
         Input {
             textarea: Mutex::new(textarea),
             border_type: None,
+            mask_char: None,
         }
     }
 
@@ -37,7 +39,25 @@ impl Input {
         Input {
             textarea: Mutex::new(textarea),
             border_type: None,
+            mask_char: None,
         }
+    }
+
+    /// Mask input with default character '*'.
+    pub fn masked(self) -> Self {
+        self.masked_with('*')
+    }
+
+    /// Mask input with custom character.
+    pub fn masked_with(mut self, ch: char) -> Self {
+        self.mask_char = Some(ch);
+        self
+    }
+
+    /// Disable masking.
+    pub fn unmasked(mut self) -> Self {
+        self.mask_char = None;
+        self
     }
 
     /// Create an input with border.
@@ -95,6 +115,13 @@ impl Widget for Input {
             textarea.set_cursor_style(RatatuiStyle::default().add_modifier(Modifier::REVERSED));
         } else {
             textarea.set_cursor_style(RatatuiStyle::default());
+        }
+
+        // Set mask character if needed
+        if let Some(ch) = self.mask_char {
+            textarea.set_mask_char(ch);
+        } else {
+            textarea.clear_mask_char();
         }
 
         // Render the textarea (with or without cursor based on focus)
