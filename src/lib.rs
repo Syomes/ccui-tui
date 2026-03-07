@@ -38,11 +38,13 @@
 mod document;
 mod event;
 mod internal;
+mod shared;
 mod style;
 mod widget;
 
 // Re-export public API
 pub use document::{Container, ContainerHandle, Document, Ui, WidgetHandle, WidgetOps};
 pub use event::{Event, EventContext, EventType, ListenerId};
+pub use shared::Shared;
 pub use style::{BorderType, FlexDirection, LayoutMode, RectOffset, Style};
 pub use widget::{Direction, Divider, Input, Text, Widget};
