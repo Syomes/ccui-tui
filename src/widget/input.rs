@@ -2,6 +2,7 @@ use crate::event::{UiMessage, WidgetMessage};
 use crate::style::{BorderType, Style};
 use crate::widget::{Widget, WidgetKind, WidgetType};
 use crossterm::event::KeyEvent;
+use parking_lot::Mutex;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -10,12 +11,13 @@ use ratatui::{
 };
 use ratatui_textarea::TextArea;
 use std::any::Any;
-use std::sync::Mutex;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 /// Messages for Input widget.
 pub enum InputMessage {
     SetMask(Option<char>),
+    SetValue(String),
 }
 
 impl WidgetMessage for InputMessage {
@@ -23,6 +25,12 @@ impl WidgetMessage for InputMessage {
         if let Some(input) = widget.as_any_mut().downcast_mut::<Input>() {
             match *self {
                 InputMessage::SetMask(ch) => input.mask_char = ch,
+                InputMessage::SetValue(ref value) => {
+                    let len = input.textarea.lock().lines().join("\n").len();
+                    let mut ta = input.textarea.lock();
+                    ta.delete_str(len);
+                    ta.insert_str(value);
+                }
             }
         }
     }
@@ -34,6 +42,7 @@ pub struct InputHandle {
     id: String,
     style: crate::style::Style,
     ui_tx: mpsc::Sender<UiMessage>,
+    textarea: Arc<Mutex<TextArea<'static>>>,
 }
 
 impl crate::document::WidgetHandle for InputHandle {
@@ -49,6 +58,24 @@ impl crate::document::WidgetHandle for InputHandle {
 }
 
 impl InputHandle {
+    /// Get the current value.
+    pub fn get_value(&self) -> String {
+        self.textarea.lock().lines().join("\n")
+    }
+
+    /// Set the value.
+    pub fn set_value(
+        &self,
+        value: impl Into<String>,
+    ) -> Result<(), mpsc::error::TrySendError<UiMessage>> {
+        // Update via message
+        self.ui_tx.try_send(UiMessage::WidgetMessage {
+            id: self.id.clone(),
+            message: Box::new(InputMessage::SetValue(value.into())),
+        })?;
+        Ok(())
+    }
+
     /// Set the mask character for password input.
     pub fn set_masked(&self, ch: Option<char>) -> Result<(), mpsc::error::TrySendError<UiMessage>> {
         self.ui_tx.try_send(UiMessage::WidgetMessage {
@@ -86,38 +113,50 @@ impl WidgetType for Input {
         ui_tx: mpsc::Sender<UiMessage>,
         style: crate::style::Style,
     ) -> Self::Handle {
-        InputHandle { id, style, ui_tx }
+        let textarea = Arc::new(Mutex::new(TextArea::default()));
+        InputHandle {
+            id,
+            style,
+            ui_tx,
+            textarea: Arc::clone(&textarea),
+        }
     }
 }
 
 /// An input field widget that accepts text input (single-line mode).
 pub struct Input {
-    textarea: Mutex<TextArea<'static>>,
+    textarea: Arc<Mutex<TextArea<'static>>>,
     border_type: Option<BorderType>,
     mask_char: Option<char>,
 }
 
 impl Input {
     pub fn new() -> Self {
-        let mut textarea = TextArea::default();
-        textarea.set_cursor_line_style(RatatuiStyle::default());
-        textarea.set_cursor_style(RatatuiStyle::default());
+        let textarea = Arc::new(Mutex::new({
+            let mut ta = TextArea::default();
+            ta.set_cursor_line_style(RatatuiStyle::default());
+            ta.set_cursor_style(RatatuiStyle::default());
+            ta
+        }));
 
         Input {
-            textarea: Mutex::new(textarea),
+            textarea,
             border_type: None,
             mask_char: None,
         }
     }
 
     pub fn with_value<S: Into<String>>(value: S) -> Self {
-        let mut textarea = TextArea::default();
-        textarea.insert_str(&value.into());
-        textarea.set_cursor_line_style(RatatuiStyle::default());
-        textarea.set_cursor_style(RatatuiStyle::default());
+        let textarea = Arc::new(Mutex::new({
+            let mut ta = TextArea::default();
+            ta.insert_str(&value.into());
+            ta.set_cursor_line_style(RatatuiStyle::default());
+            ta.set_cursor_style(RatatuiStyle::default());
+            ta
+        }));
 
         Input {
-            textarea: Mutex::new(textarea),
+            textarea,
             border_type: None,
             mask_char: None,
         }
@@ -147,13 +186,13 @@ impl Input {
     }
 
     pub fn value(&self) -> String {
-        self.textarea.lock().unwrap().lines().join("\n")
+        self.textarea.lock().lines().join("\n")
     }
 
     pub fn set_value<S: Into<String>>(&mut self, value: S) {
-        let mut textarea = TextArea::default();
-        textarea.insert_str(&value.into());
-        self.textarea = Mutex::new(textarea);
+        let mut ta = TextArea::default();
+        ta.insert_str(&value.into());
+        *self.textarea.lock() = ta;
     }
 }
 
@@ -190,7 +229,7 @@ impl Widget for Input {
         f.render_widget(block, inner_area);
 
         // Set cursor style based on focus state
-        let mut textarea = self.textarea.lock().unwrap();
+        let mut textarea = self.textarea.lock();
         if is_focused {
             textarea.set_cursor_style(RatatuiStyle::default().add_modifier(Modifier::REVERSED));
         } else {
@@ -230,7 +269,7 @@ impl Widget for Input {
         if key.code == KeyCode::Enter {
             return false;
         }
-        self.textarea.lock().unwrap().input(key);
+        self.textarea.lock().input(key);
         true
     }
 

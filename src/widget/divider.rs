@@ -1,7 +1,92 @@
-use crate::style::Style;
-use crate::widget::Widget;
-use ratatui::widgets::{Block, Borders};
-use ratatui::{Frame, layout::Rect};
+use crate::event::{UiMessage, WidgetMessage};
+use crate::style::{BorderType, Style};
+use crate::widget::{Widget, WidgetKind, WidgetType};
+use ratatui::{
+    Frame,
+    layout::Rect,
+    widgets::{Block, Borders},
+};
+use std::any::Any;
+use tokio::sync::mpsc;
+
+/// Messages for Divider widget.
+pub enum DividerMessage {
+    SetDirection(Direction),
+    SetLineType(BorderType),
+}
+
+impl WidgetMessage for DividerMessage {
+    fn apply(self: Box<Self>, widget: &mut dyn Widget) {
+        if let Some(divider) = widget.as_any_mut().downcast_mut::<Divider>() {
+            match *self {
+                DividerMessage::SetDirection(dir) => divider.direction = dir,
+                DividerMessage::SetLineType(line_type) => divider.line_type = line_type,
+            }
+        }
+    }
+}
+
+/// Handle for controlling a Divider widget.
+#[derive(Clone)]
+pub struct DividerHandle {
+    id: String,
+    style: crate::style::Style,
+    ui_tx: mpsc::Sender<UiMessage>,
+}
+
+impl crate::document::WidgetHandle for DividerHandle {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn style(&self) -> &crate::style::Style {
+        &self.style
+    }
+    fn ui_tx(&self) -> &mpsc::Sender<UiMessage> {
+        &self.ui_tx
+    }
+}
+
+impl DividerHandle {
+    /// Set the direction of the divider.
+    pub fn set_direction(
+        &self,
+        direction: Direction,
+    ) -> Result<(), mpsc::error::TrySendError<UiMessage>> {
+        self.ui_tx.try_send(UiMessage::WidgetMessage {
+            id: self.id.clone(),
+            message: Box::new(DividerMessage::SetDirection(direction)),
+        })?;
+        Ok(())
+    }
+
+    /// Set the line type of the divider.
+    pub fn set_line_type(
+        &self,
+        line_type: BorderType,
+    ) -> Result<(), mpsc::error::TrySendError<UiMessage>> {
+        self.ui_tx.try_send(UiMessage::WidgetMessage {
+            id: self.id.clone(),
+            message: Box::new(DividerMessage::SetLineType(line_type)),
+        })?;
+        Ok(())
+    }
+}
+
+impl WidgetType for Divider {
+    type Handle = DividerHandle;
+
+    fn kind() -> WidgetKind {
+        WidgetKind::Divider
+    }
+
+    fn create_handle(
+        id: String,
+        ui_tx: mpsc::Sender<UiMessage>,
+        style: crate::style::Style,
+    ) -> Self::Handle {
+        DividerHandle { id, style, ui_tx }
+    }
+}
 
 /// Direction of the divider line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -11,36 +96,58 @@ pub enum Direction {
     Vertical,
 }
 
-/// Border type for dividers.
-pub type LineType = crate::style::BorderType;
-
 /// A divider widget that draws a line using Block borders.
 pub struct Divider {
     direction: Direction,
-    line_type: LineType,
+    line_type: BorderType,
 }
 
 impl Divider {
-    /// Create a horizontal divider with plain line type.
+    pub fn new() -> Self {
+        Divider {
+            direction: Direction::Horizontal,
+            line_type: BorderType::Plain,
+        }
+    }
+
+    /// Create a horizontal divider.
     pub fn horizontal() -> Self {
         Divider {
             direction: Direction::Horizontal,
-            line_type: LineType::Plain,
+            line_type: BorderType::Plain,
         }
     }
 
-    /// Create a vertical divider with plain line type.
+    /// Create a vertical divider.
     pub fn vertical() -> Self {
         Divider {
             direction: Direction::Vertical,
-            line_type: LineType::Plain,
+            line_type: BorderType::Plain,
         }
     }
 
+    /// Set the direction.
+    pub fn direction(mut self, direction: Direction) -> Self {
+        self.direction = direction;
+        self
+    }
+
     /// Set the line type.
-    pub fn line_type(mut self, line_type: LineType) -> Self {
+    pub fn line_type(mut self, line_type: BorderType) -> Self {
         self.line_type = line_type;
         self
+    }
+
+    /// Create a divider with border.
+    pub fn bordered(mut self, border_type: BorderType) -> Self {
+        self.line_type = border_type;
+        self
+    }
+}
+
+impl Default for Divider {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -48,10 +155,10 @@ impl Widget for Divider {
     fn render(&self, f: &mut Frame, area: Rect, _style: &Style, _is_focused: bool) {
         // Convert our BorderType to ratatui's BorderType
         let border_type = match self.line_type {
-            LineType::Plain => ratatui::widgets::BorderType::Plain,
-            LineType::Rounded => ratatui::widgets::BorderType::Rounded,
-            LineType::Double => ratatui::widgets::BorderType::Double,
-            LineType::Thick => ratatui::widgets::BorderType::Thick,
+            BorderType::Plain => ratatui::widgets::BorderType::Plain,
+            BorderType::Rounded => ratatui::widgets::BorderType::Rounded,
+            BorderType::Double => ratatui::widgets::BorderType::Double,
+            BorderType::Thick => ratatui::widgets::BorderType::Thick,
         };
 
         let block = match self.direction {
@@ -89,7 +196,7 @@ impl Widget for Divider {
         }
     }
 
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
 }

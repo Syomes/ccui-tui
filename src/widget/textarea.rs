@@ -2,6 +2,7 @@ use crate::event::{UiMessage, WidgetMessage};
 use crate::style::{BorderType, Style};
 use crate::widget::{Widget, WidgetKind, WidgetType};
 use crossterm::event::KeyEvent;
+use parking_lot::Mutex;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -10,12 +11,13 @@ use ratatui::{
 };
 use ratatui_textarea::TextArea;
 use std::any::Any;
-use std::sync::Mutex;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 /// Messages for Textarea widget.
 pub enum TextareaMessage {
     SetHeight(u16),
+    SetValue(String),
 }
 
 impl WidgetMessage for TextareaMessage {
@@ -23,6 +25,12 @@ impl WidgetMessage for TextareaMessage {
         if let Some(textarea) = widget.as_any_mut().downcast_mut::<Textarea>() {
             match *self {
                 TextareaMessage::SetHeight(h) => textarea.height = h,
+                TextareaMessage::SetValue(ref value) => {
+                    let len = textarea.textarea.lock().lines().join("\n").len();
+                    let mut ta = textarea.textarea.lock();
+                    ta.delete_str(len);
+                    ta.insert_str(value);
+                }
             }
         }
     }
@@ -34,6 +42,7 @@ pub struct TextareaHandle {
     id: String,
     style: crate::style::Style,
     ui_tx: mpsc::Sender<UiMessage>,
+    textarea: Arc<Mutex<TextArea<'static>>>,
 }
 
 impl crate::document::WidgetHandle for TextareaHandle {
@@ -49,6 +58,23 @@ impl crate::document::WidgetHandle for TextareaHandle {
 }
 
 impl TextareaHandle {
+    /// Get the current value.
+    pub fn get_value(&self) -> String {
+        self.textarea.lock().lines().join("\n")
+    }
+
+    /// Set the value.
+    pub fn set_value(
+        &self,
+        value: impl Into<String>,
+    ) -> Result<(), mpsc::error::TrySendError<UiMessage>> {
+        self.ui_tx.try_send(UiMessage::WidgetMessage {
+            id: self.id.clone(),
+            message: Box::new(TextareaMessage::SetValue(value.into())),
+        })?;
+        Ok(())
+    }
+
     /// Set the height of the textarea.
     pub fn set_height(&self, height: u16) -> Result<(), mpsc::error::TrySendError<UiMessage>> {
         self.ui_tx.try_send(UiMessage::WidgetMessage {
@@ -71,39 +97,50 @@ impl WidgetType for Textarea {
         ui_tx: mpsc::Sender<UiMessage>,
         style: crate::style::Style,
     ) -> Self::Handle {
-        TextareaHandle { id, style, ui_tx }
+        let textarea = Arc::new(Mutex::new(TextArea::default()));
+        TextareaHandle {
+            id,
+            style,
+            ui_tx,
+            textarea: Arc::clone(&textarea),
+        }
     }
 }
 
 /// A multi-line text input widget.
 pub struct Textarea {
-    textarea: Mutex<TextArea<'static>>,
+    textarea: Arc<Mutex<TextArea<'static>>>,
     border_type: Option<BorderType>,
     height: u16,
 }
 
 impl Textarea {
     pub fn new() -> Self {
-        let mut textarea = TextArea::default();
-        // Multi-line mode (default)
-        textarea.set_cursor_line_style(RatatuiStyle::default());
-        textarea.set_cursor_style(RatatuiStyle::default().add_modifier(Modifier::REVERSED));
+        let textarea = Arc::new(Mutex::new({
+            let mut ta = TextArea::default();
+            ta.set_cursor_line_style(RatatuiStyle::default());
+            ta.set_cursor_style(RatatuiStyle::default().add_modifier(Modifier::REVERSED));
+            ta
+        }));
 
         Textarea {
-            textarea: Mutex::new(textarea),
+            textarea,
             border_type: None,
-            height: 5, // Default height: 5 lines
+            height: 5,
         }
     }
 
     pub fn with_value<S: Into<String>>(value: S) -> Self {
-        let mut textarea = TextArea::default();
-        textarea.insert_str(&value.into());
-        textarea.set_cursor_line_style(RatatuiStyle::default());
-        textarea.set_cursor_style(RatatuiStyle::default().add_modifier(Modifier::REVERSED));
+        let textarea = Arc::new(Mutex::new({
+            let mut ta = TextArea::default();
+            ta.insert_str(&value.into());
+            ta.set_cursor_line_style(RatatuiStyle::default());
+            ta.set_cursor_style(RatatuiStyle::default().add_modifier(Modifier::REVERSED));
+            ta
+        }));
 
         Textarea {
-            textarea: Mutex::new(textarea),
+            textarea,
             border_type: None,
             height: 5,
         }
@@ -122,13 +159,13 @@ impl Textarea {
     }
 
     pub fn value(&self) -> String {
-        self.textarea.lock().unwrap().lines().join("\n")
+        self.textarea.lock().lines().join("\n")
     }
 
     pub fn set_value<S: Into<String>>(&mut self, value: S) {
-        let mut textarea = TextArea::default();
-        textarea.insert_str(&value.into());
-        self.textarea = Mutex::new(textarea);
+        let mut ta = TextArea::default();
+        ta.insert_str(&value.into());
+        *self.textarea.lock() = ta;
     }
 }
 
@@ -143,7 +180,7 @@ impl Widget for Textarea {
         // Apply padding
         let inner_area = style.shrink(area);
 
-        // Show border only if style.border_type is Some
+        // Show border only if needed
         let block = if self.border_type.is_some() {
             Block::default()
                 .borders(Borders::ALL)
@@ -165,7 +202,7 @@ impl Widget for Textarea {
         f.render_widget(block, inner_area);
 
         // Set cursor style based on focus state
-        let mut textarea = self.textarea.lock().unwrap();
+        let mut textarea = self.textarea.lock();
         if is_focused {
             textarea.set_cursor_style(RatatuiStyle::default().add_modifier(Modifier::REVERSED));
         } else {
@@ -193,7 +230,7 @@ impl Widget for Textarea {
 
     fn handle_key(&mut self, key: KeyEvent) -> bool {
         // Enter key inserts newline in multi-line mode
-        self.textarea.lock().unwrap().input(key);
+        self.textarea.lock().input(key);
         true
     }
 

@@ -76,7 +76,7 @@ pub mod input;
 pub mod text;
 pub mod textarea;
 
-pub use divider::{Direction, Divider};
+pub use divider::{Direction, Divider, DividerHandle};
 pub use input::{Input, InputHandle};
-pub use text::Text;
+pub use text::{Text, TextHandle};
 pub use textarea::{Textarea, TextareaHandle};
