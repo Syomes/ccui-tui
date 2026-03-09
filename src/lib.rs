@@ -38,6 +38,7 @@
 mod document;
 pub mod event;
 mod internal;
+mod layout;
 pub mod style;
 pub mod util;
 pub mod widget;
