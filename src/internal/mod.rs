@@ -82,6 +82,11 @@ impl Node {
     }
 
     pub fn render(&self, f: &mut Frame, focused_id: Option<&str>) {
+        // If this node has a background color, clear the area first to cover underlying content
+        if self.style.bg_color.is_some() {
+            f.render_widget(ratatui::widgets::Clear, self.area);
+        }
+
         // Render background if bg_color is set
         if let Some(bg_color) = self.style.bg_color {
             let block = ratatui::widgets::Block::default()
