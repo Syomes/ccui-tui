@@ -47,75 +47,7 @@ impl RenderLoop {
 
             // Handle UI commands
             while let Ok(msg) = ui_rx.try_recv() {
-                match msg {
-                    UiMessage::AddWidget {
-                        parent_id,
-                        id,
-                        widget,
-                        style,
-                    } => {
-                        state.root.add_widget_box(&parent_id, id, widget, style);
-                    }
-                    UiMessage::AddContainer {
-                        parent_id,
-                        id,
-                        style,
-                    } => {
-                        state.root.add_container(&parent_id, id, style);
-                    }
-                    UiMessage::RemoveWidget(id) => {
-                        state.root.remove_child(&id);
-                    }
-                    UiMessage::UpdateWidget { id, widget } => {
-                        state.root.update_widget_box(&id, widget);
-                    }
-                    UiMessage::UpdateStyle { id, style } => {
-                        state.root.update_style(&id, style);
-                    }
-                    UiMessage::AddEventListener {
-                        target_id,
-                        event_type,
-                        listener,
-                        listener_id,
-                    } => {
-                        state.root.add_event_listener(
-                            &target_id,
-                            event_type,
-                            listener,
-                            listener_id,
-                        );
-                    }
-                    UiMessage::RemoveEventListener { listener_id } => {
-                        state.root.remove_event_listener(listener_id);
-                    }
-                    UiMessage::AddGlobalListener {
-                        event_type,
-                        listener,
-                        listener_id,
-                    } => {
-                        state
-                            .global_listeners
-                            .entry(event_type)
-                            .or_insert_with(Vec::new)
-                            .push((listener_id, listener));
-                    }
-                    UiMessage::ToggleMouseCapture => {
-                        state.mouse_capture_enabled = !state.mouse_capture_enabled;
-                        if state.mouse_capture_enabled {
-                            let _ = std::io::stdout().execute(EnableMouseCapture);
-                        } else {
-                            let _ = std::io::stdout().execute(DisableMouseCapture);
-                        }
-                    }
-                    UiMessage::WidgetMessage { id, message } => {
-                        // Widget-specific message: let the widget handle it
-                        if let Some(node) = state.root.find_child_mut(&id) {
-                            if let Some(widget) = &mut node.widget {
-                                message.apply(&mut **widget);
-                            }
-                        }
-                    }
-                }
+                state.handle_ui_msg(msg);
             }
 
             // Poll terminal events and dispatch
@@ -273,6 +205,74 @@ impl RenderLoop {
         // Trigger listeners on the target node
         if let Some(node) = self.root.find_child_mut(&target_id) {
             node.trigger_event(&event_type, ctx);
+        }
+    }
+
+    /// Handle a UI message from the framework.
+    fn handle_ui_msg(&mut self, msg: UiMessage) {
+        match msg {
+            UiMessage::AddWidget {
+                parent_id,
+                id,
+                widget,
+                style,
+            } => {
+                self.root.add_widget_box(&parent_id, id, widget, style);
+            }
+            UiMessage::AddContainer {
+                parent_id,
+                id,
+                style,
+            } => {
+                self.root.add_container(&parent_id, id, style);
+            }
+            UiMessage::RemoveWidget(id) => {
+                self.root.remove_child(&id);
+            }
+            UiMessage::UpdateWidget { id, widget } => {
+                self.root.update_widget_box(&id, widget);
+            }
+            UiMessage::UpdateStyle { id, style } => {
+                self.root.update_style(&id, style);
+            }
+            UiMessage::AddEventListener {
+                target_id,
+                event_type,
+                listener,
+                listener_id,
+            } => {
+                self.root
+                    .add_event_listener(&target_id, event_type, listener, listener_id);
+            }
+            UiMessage::RemoveEventListener { listener_id } => {
+                self.root.remove_event_listener(listener_id);
+            }
+            UiMessage::AddGlobalListener {
+                event_type,
+                listener,
+                listener_id,
+            } => {
+                self.global_listeners
+                    .entry(event_type)
+                    .or_insert_with(Vec::new)
+                    .push((listener_id, listener));
+            }
+            UiMessage::ToggleMouseCapture => {
+                self.mouse_capture_enabled = !self.mouse_capture_enabled;
+                if self.mouse_capture_enabled {
+                    let _ = std::io::stdout().execute(EnableMouseCapture);
+                } else {
+                    let _ = std::io::stdout().execute(DisableMouseCapture);
+                }
+            }
+            UiMessage::WidgetMessage { id, message } => {
+                // Widget-specific message: let the widget handle it
+                if let Some(node) = self.root.find_child_mut(&id) {
+                    if let Some(widget) = &mut node.widget {
+                        message.apply(&mut **widget);
+                    }
+                }
+            }
         }
     }
 }
