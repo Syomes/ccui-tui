@@ -119,8 +119,10 @@ impl Node {
             widget.render(f, self.area, &self.style, is_focused);
         }
 
-        // Then render all children
-        for child in &self.children {
+        // Render children sorted by z-index (higher z-index renders on top)
+        let mut children: Vec<_> = self.children.iter().collect();
+        children.sort_by_key(|child| child.style.z_index);
+        for child in children {
             child.render(f, focused_id);
         }
     }

@@ -123,6 +123,9 @@ pub struct Style {
 
     // Background color (None = transparent)
     pub bg_color: Option<Color>,
+
+    // Z-index for stacking order (higher values render on top)
+    pub z_index: i32,
 }
 
 impl Style {
@@ -208,6 +211,12 @@ impl Style {
     /// Remove background color (transparent).
     pub fn no_bg(mut self) -> Self {
         self.bg_color = None;
+        self
+    }
+
+    /// Set z-index for stacking order (higher values render on top).
+    pub fn z_index(mut self, z: i32) -> Self {
+        self.z_index = z;
         self
     }
 
