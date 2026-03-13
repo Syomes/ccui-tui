@@ -73,6 +73,16 @@ pub enum BorderType {
     Thick,   // ━ ┃ ┏ ┓ ┗ ┛
 }
 
+/// Overflow mode for containers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Overflow {
+    #[default]
+    Visible,
+    Hidden,
+    Scroll,
+    Auto,
+}
+
 /// Spacing offset (padding).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RectOffset {
@@ -126,6 +136,9 @@ pub struct Style {
 
     // Z-index for stacking order (higher values render on top)
     pub z_index: i32,
+
+    // Overflow mode (default: visible)
+    pub overflow: Overflow,
 }
 
 impl Style {
