@@ -3,6 +3,8 @@
 
 An ID-driven TUI framework built on ratatui and tokio.
 
+[![Built With Ratatui](https://img.shields.io/badge/Built_With_Ratatui-000?logo=ratatui&logoColor=fff)](https://ratatui.rs/)
+
 ## Quick Start
 
 ```rust
