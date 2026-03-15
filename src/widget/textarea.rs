@@ -4,10 +4,10 @@ use crate::widget::{Widget, WidgetKind, WidgetType};
 use crossterm::event::KeyEvent;
 use parking_lot::Mutex;
 use ratatui::{
-    Frame,
+    buffer::Buffer,
     layout::Rect,
     style::{Modifier, Style as RatatuiStyle},
-    widgets::{Block, Borders},
+    widgets::{Block, Borders, Widget as RatatuiWidget},
 };
 use ratatui_textarea::TextArea;
 use std::any::Any;
@@ -176,7 +176,7 @@ impl Default for Textarea {
 }
 
 impl Widget for Textarea {
-    fn render(&self, f: &mut Frame, area: Rect, style: &Style, is_focused: bool) {
+    fn render(&self, buffer: &mut Buffer, area: Rect, style: &Style, is_focused: bool) {
         // Apply padding
         let inner_area = style.shrink(area);
 
@@ -199,7 +199,7 @@ impl Widget for Textarea {
         let value_area = block.inner(inner_area);
 
         // Render the block border
-        f.render_widget(block, inner_area);
+        block.render(inner_area, buffer);
 
         // Set cursor style based on focus state
         let mut textarea = self.textarea.lock();
@@ -210,7 +210,7 @@ impl Widget for Textarea {
         }
 
         // Render the textarea (with or without cursor based on focus)
-        f.render_widget(&*textarea, value_area);
+        textarea.render(value_area, buffer);
     }
 
     fn node_style_hint(&self) -> Option<Style> {

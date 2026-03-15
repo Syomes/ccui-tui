@@ -2,9 +2,9 @@ use crate::event::{UiMessage, WidgetMessage};
 use crate::style::{BorderType, Style};
 use crate::widget::{Widget, WidgetKind, WidgetType};
 use ratatui::{
-    Frame,
+    buffer::Buffer,
     layout::Rect,
-    widgets::{Block, Borders},
+    widgets::{Block, Borders, Widget as RatatuiWidget},
 };
 use std::any::Any;
 use tokio::sync::mpsc;
@@ -152,7 +152,7 @@ impl Default for Divider {
 }
 
 impl Widget for Divider {
-    fn render(&self, f: &mut Frame, area: Rect, _style: &Style, _is_focused: bool) {
+    fn render(&self, buffer: &mut Buffer, area: Rect, _style: &Style, _is_focused: bool) {
         // Convert our BorderType to ratatui's BorderType
         let border_type = match self.line_type {
             BorderType::Plain => ratatui::widgets::BorderType::Plain,
@@ -176,7 +176,7 @@ impl Widget for Divider {
             }
         };
 
-        f.render_widget(block, area);
+        block.render(area, buffer);
     }
 
     fn size_hint(&self) -> Option<(u16, u16)> {

@@ -1,33 +1,39 @@
 use ratatui::layout::Rect;
 
 use crate::internal::Node;
-use crate::style::Style;
+use crate::style::{Overflow, Style};
 
 use super::context::LayoutContext;
 
 /// Check if node is floating.
 #[inline]
-pub(crate) fn is_floating(child: &Node) -> bool {
+pub(super) fn is_floating(child: &Node) -> bool {
     child.style.position_mode == crate::style::PositionMode::Floating
 }
 
 /// Calculate content area (applying border and padding).
 fn content_area(style: &Style, parent_area: Rect) -> Rect {
-    let after_border = shrink_border(style, parent_area);
+    // !Visible containers' children area will be handled by ScrollView
+    let real_content = if style.overflow == Overflow::Visible {
+        shrink_border(style, parent_area)
+    } else {
+        parent_area
+    };
+
     Rect::new(
-        after_border.x + style.padding.left,
-        after_border.y + style.padding.top,
-        after_border
+        real_content.x + style.padding.left,
+        real_content.y + style.padding.top,
+        real_content
             .width
             .saturating_sub(style.padding.left + style.padding.right),
-        after_border
+        real_content
             .height
             .saturating_sub(style.padding.top + style.padding.bottom),
     )
 }
 
 /// Shrink area by border.
-fn shrink_border(style: &Style, area: Rect) -> Rect {
+pub fn shrink_border(style: &Style, area: Rect) -> Rect {
     if style.border_type.is_none() {
         return area;
     }

@@ -3,6 +3,7 @@
 
 An ID-driven TUI framework built on ratatui and tokio.
 
+Used [ratatui-widgets](https://github.com/ratatui/tui-widgets): **tui-textarea**, **tui-scrollview**
 [![Built With Ratatui](https://img.shields.io/badge/Built_With_Ratatui-000?logo=ratatui&logoColor=fff)](https://ratatui.rs/)
 
 ## Quick Start

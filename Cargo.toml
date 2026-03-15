@@ -10,4 +10,5 @@ parking_lot = "0.12.5"
 ratatui = "0.30.0"
 ratatui-textarea = "0.8.0"
 tokio = { version = "1.49.0", features = ["full"] }
+tui-scrollview = "0.6.2"
 unicode-width = "0.2.2"

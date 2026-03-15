@@ -117,6 +117,7 @@ dependencies = [
  "ratatui",
  "ratatui-textarea",
  "tokio",
+ "tui-scrollview",
  "unicode-width",
 ]
 
@@ -1401,6 +1402,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "tui-scrollview"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c8ada5290cf63e5e718a13111020398979975d4df556a55ae88014aa8850f171"
+dependencies = [
+ "indoc",
+ "ratatui-core",
+ "ratatui-widgets",
 ]
 
 [[package]]

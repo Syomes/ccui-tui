@@ -3,9 +3,9 @@ use crate::style::Style;
 use crate::widget::{Widget, WidgetKind, WidgetType};
 use parking_lot::Mutex;
 use ratatui::{
-    Frame,
+    buffer::Buffer,
     layout::Rect,
-    widgets::{Paragraph, Wrap},
+    widgets::{Paragraph, Widget as RatatuiWidget, Wrap},
 };
 use std::any::Any;
 use std::sync::Arc;
@@ -119,7 +119,7 @@ impl Default for Text {
 }
 
 impl Widget for Text {
-    fn render(&self, f: &mut Frame, area: Rect, style: &Style, _is_focused: bool) {
+    fn render(&self, buffer: &mut Buffer, area: Rect, style: &Style, _is_focused: bool) {
         // Apply padding to get inner area
         let inner_area = style.shrink(area);
 
@@ -127,7 +127,7 @@ impl Widget for Text {
         let content = self.content.lock();
         let paragraph = Paragraph::new(content.as_str()).wrap(Wrap { trim: false });
 
-        f.render_widget(paragraph, inner_area);
+        paragraph.render(inner_area, buffer);
     }
 
     fn node_style_hint(&self) -> Option<Style> {

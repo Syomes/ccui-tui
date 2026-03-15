@@ -42,7 +42,8 @@ impl RenderLoop {
                 state.root.layout(screen_area);
 
                 // Then render with focus state
-                state.root.render(f, state.focused_id.as_deref());
+                let buffer = f.buffer_mut();
+                state.root.render(buffer, state.focused_id.as_deref());
             });
 
             // Handle UI commands

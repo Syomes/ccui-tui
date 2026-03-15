@@ -1,6 +1,6 @@
 use crate::style::Style;
 use crossterm::event::KeyEvent;
-use ratatui::{Frame, layout::Rect};
+use ratatui::{buffer::Buffer, layout::Rect};
 use tokio::sync::mpsc;
 
 use crate::event::UiMessage;
@@ -29,8 +29,8 @@ pub trait WidgetType {
 
 /// A renderable widget that can be displayed in a terminal area.
 pub trait Widget: Send + Sync {
-    /// Render the widget within the given frame and area.
-    fn render(&self, f: &mut Frame, area: Rect, style: &Style, is_focused: bool);
+    /// Render the widget within the given buffer and area.
+    fn render(&self, buffer: &mut Buffer, area: Rect, style: &Style, is_focused: bool);
 
     /// Get the default style hint for the node that contains this widget.
     fn node_style_hint(&self) -> Option<Style> {
@@ -60,11 +60,6 @@ pub trait Widget: Send + Sync {
     /// Returns true if the event was handled, false otherwise.
     fn handle_key(&mut self, _key: KeyEvent) -> bool {
         false
-    }
-
-    /// Render cursor if needed. Called only when widget is focused.
-    fn render_cursor(&self, _f: &mut Frame, _area: Rect, _style: &Style, _is_focused: bool) {
-        // Default: no cursor
     }
 
     /// Get mutable reference as Any for downcasting.

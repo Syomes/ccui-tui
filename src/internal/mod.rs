@@ -1,11 +1,15 @@
 mod render;
 
+use ratatui::layout::Size;
+use ratatui::widgets::StatefulWidget;
 pub use render::RenderLoop;
+use tui_scrollview::{ScrollView, ScrollViewState, ScrollbarVisibility};
 
 use crate::event::{EventContext, EventListener, EventType, ListenerId};
-use crate::style::Style;
+use crate::layout::shrink_border;
+use crate::style::{Overflow, Style};
 use crate::widget::Widget;
-use ratatui::{Frame, layout::Rect};
+use ratatui::{buffer::Buffer, layout::Rect};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -22,6 +26,7 @@ pub struct Node {
     pub style: Style,
     pub area: Rect,         // Allocated area from layout
     pub content_area: Rect, // Actual content area (for hit testing)
+    pub scroll_state: Option<ScrollViewState>,
     pub widget: Option<Box<dyn Widget>>,
     pub children: Vec<Node>,
     /// Event listeners attached to this node.
@@ -35,6 +40,7 @@ impl Node {
             style: Style::new().column(),
             area: Rect::default(),
             content_area: Rect::default(),
+            scroll_state: None,
             widget: None,
             children: vec![],
             listeners: HashMap::new(),
@@ -81,25 +87,30 @@ impl Node {
         }
     }
 
-    pub fn render(&self, f: &mut Frame, focused_id: Option<&str>) {
+    pub fn render(&mut self, buffer: &mut Buffer, focused_id: Option<&str>) {
         // If this node has a background color, clear the area first to cover underlying content
         if self.style.bg_color.is_some() {
-            f.render_widget(ratatui::widgets::Clear, self.area);
+            use ratatui::widgets::Widget as RatatuiWidget;
+            ratatui::widgets::Clear.render(self.area, buffer);
         }
 
         // Render background if bg_color is set
         if let Some(bg_color) = self.style.bg_color {
+            use ratatui::widgets::Widget as RatatuiWidget;
             let block = ratatui::widgets::Block::default()
                 .style(ratatui::style::Style::default().bg(bg_color.into()));
-            f.render_widget(block, self.area);
+            block.render(self.area, buffer);
         }
 
-        // Render border for containers (nodes without widget or with children)
+        // Render border for CONTAINERS (nodes without widget or with children)
+        let mut scroll_view: Option<ScrollView> = None;
         if self.widget.is_none() || !self.children.is_empty() {
             if let Some(border_type) = self.style.border_type {
                 use crate::style::BorderType;
                 use ratatui::symbols::merge::MergeStrategy;
-                use ratatui::widgets::{Block, BorderType as RatatuiBorderType};
+                use ratatui::widgets::{
+                    Block, BorderType as RatatuiBorderType, Widget as RatatuiWidget,
+                };
 
                 let ratatui_border_type = match border_type {
                     BorderType::Plain => RatatuiBorderType::Plain,
@@ -113,22 +124,63 @@ impl Node {
                     .borders(ratatui::widgets::Borders::ALL)
                     .merge_borders(MergeStrategy::Exact);
 
-                f.render_widget(block, self.area);
+                block.render(self.area, buffer);
+            }
+
+            // Handle overflow with or without ScrollView
+            if self.style.overflow == Overflow::Visible {
+                // TODO: offset in scroll_state
+            } else {
+                if self.scroll_state.is_none() {
+                    self.scroll_state = Some(ScrollViewState::new());
+                }
+                let size = Size::new(self.area.width, self.area.height);
+                match self.style.overflow {
+                    Overflow::Hidden => {
+                        scroll_view = Some(
+                            ScrollView::new(size).scrollbars_visibility(ScrollbarVisibility::Never),
+                        );
+                    }
+                    Overflow::Auto => {
+                        scroll_view = Some(
+                            ScrollView::new(size)
+                                .scrollbars_visibility(ScrollbarVisibility::Automatic),
+                        );
+                    }
+                    Overflow::Scroll => {
+                        scroll_view = Some(
+                            ScrollView::new(size)
+                                .scrollbars_visibility(ScrollbarVisibility::Always),
+                        );
+                    }
+                    _ => {}
+                }
             }
         }
+
+        // Get the inner buffer for widgets
+        let widget_buffer = match scroll_view.as_mut() {
+            Some(sv) => sv.buf_mut(),
+            None => buffer,
+        };
 
         // Render widget if present
         if let Some(widget) = &self.widget {
             // Check if this node is focused
             let is_focused = focused_id.map_or(false, |fid| fid == self.id);
-            widget.render(f, self.area, &self.style, is_focused);
+            widget.render(widget_buffer, self.area, &self.style, is_focused);
         }
 
         // Render children sorted by z-index (higher z-index renders on top)
-        let mut children: Vec<_> = self.children.iter().collect();
+        let mut children: Vec<_> = self.children.iter_mut().collect();
         children.sort_by_key(|child| child.style.z_index);
         for child in children {
-            child.render(f, focused_id);
+            child.render(widget_buffer, focused_id);
+        }
+
+        if let Some(v) = scroll_view {
+            let area = shrink_border(&self.style, self.area);
+            v.render(area, buffer, &mut self.scroll_state.as_mut().unwrap());
         }
     }
 
@@ -190,6 +242,7 @@ impl Node {
                 style,
                 area: Rect::default(),
                 content_area: Rect::default(),
+                scroll_state: None,
                 widget: Some(widget),
                 children: vec![],
                 listeners: HashMap::new(),
@@ -204,6 +257,7 @@ impl Node {
                 style,
                 area: Rect::default(),
                 content_area: Rect::default(),
+                scroll_state: None,
                 widget: None,
                 children: vec![],
                 listeners: HashMap::new(),
