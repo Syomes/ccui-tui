@@ -56,9 +56,6 @@ impl RenderLoop {
                 if let Ok(event) = crossterm::event::read() {
                     match event {
                         crossterm::event::Event::Key(key) => {
-                            // global listeners (always triggered)
-                            state.trigger_global_listeners(&EventType::KeyPress(key.code), key);
-
                             // focused widget (if any)
                             if let Some(ref focused_id) = state.focused_id {
                                 if let Some(node) = state.root.find_child_mut(focused_id) {
@@ -66,18 +63,26 @@ impl RenderLoop {
                                         widget.handle_key(key);
                                     }
 
-                                    // Trigger key press event listeners on the node
+                                    // Trigger key press event listeners on the node with bubbling
                                     let ctx = EventContext {
                                         event_type: EventType::KeyPress(key.code),
                                         target_id: focused_id.clone(),
+                                        current_target_id: focused_id.clone(),
                                         mouse_x: None,
                                         mouse_y: None,
                                         scroll_delta: None,
                                         key_code: Some(key.code),
+                                        propagation_stopped: false,
                                     };
-                                    node.trigger_event(&EventType::KeyPress(key.code), ctx);
+                                    state.root.trigger_event_with_bubble(
+                                        &EventType::KeyPress(key.code),
+                                        ctx,
+                                    );
                                 }
                             }
+
+                            // Global listeners (triggered after bubbling)
+                            state.trigger_global_listeners(&EventType::KeyPress(key.code), key);
 
                             // Forward to user
                             let _ = event_tx.try_send(Event::Key(key));
@@ -99,12 +104,14 @@ impl RenderLoop {
                                         let ctx = EventContext {
                                             event_type: EventType::Blur,
                                             target_id: old_id.clone(),
+                                            current_target_id: old_id.clone(),
                                             mouse_x: None,
                                             mouse_y: None,
                                             scroll_delta: None,
                                             key_code: None,
+                                            propagation_stopped: false,
                                         };
-                                        state.root.trigger_event(&EventType::Blur, ctx);
+                                        state.root.trigger_event_with_bubble(&EventType::Blur, ctx);
                                     }
 
                                     // Focus new (if clicked on a widget)
@@ -113,26 +120,32 @@ impl RenderLoop {
                                         let ctx = EventContext {
                                             event_type: EventType::Focus,
                                             target_id: id.clone(),
+                                            current_target_id: id.clone(),
                                             mouse_x: Some(mouse.column),
                                             mouse_y: Some(mouse.row),
                                             scroll_delta: None,
                                             key_code: None,
+                                            propagation_stopped: false,
                                         };
-                                        state.root.trigger_event(&EventType::Focus, ctx);
+                                        state
+                                            .root
+                                            .trigger_event_with_bubble(&EventType::Focus, ctx);
                                     }
                                 }
 
-                                // Trigger click listeners (if clicked on a widget)
+                                // Trigger click listeners with bubbling (if clicked on a widget)
                                 if let Some(ref id) = clicked_id {
                                     let ctx = EventContext {
                                         event_type: EventType::Click,
                                         target_id: id.clone(),
+                                        current_target_id: id.clone(),
                                         mouse_x: Some(mouse.column),
                                         mouse_y: Some(mouse.row),
                                         scroll_delta: None,
                                         key_code: None,
+                                        propagation_stopped: false,
                                     };
-                                    state.root.trigger_event(&EventType::Click, ctx);
+                                    state.root.trigger_event_with_bubble(&EventType::Click, ctx);
                                 }
                             }
 
@@ -160,10 +173,12 @@ impl RenderLoop {
                 let ctx = EventContext {
                     event_type: event_type.clone(),
                     target_id: String::from("global"),
+                    current_target_id: String::from("global"),
                     mouse_x: None,
                     mouse_y: None,
                     scroll_delta: None,
                     key_code: Some(key.code),
+                    propagation_stopped: false,
                 };
                 listener(ctx);
             }
@@ -183,16 +198,30 @@ impl RenderLoop {
             _ => return,
         };
 
-        // Hit test to find target element
-        let target_id = match self.root.find_widget_at(mouse.column, mouse.row) {
-            Some(id) => id,
-            None => return,
+        // For scroll events: find the scrollview container at the mouse position
+        // For other events: find the deepest widget at the mouse position
+        let target_id = if matches!(
+            mouse.kind,
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
+        ) {
+            // Find scrollview container
+            match self.root.find_scrollview_at(mouse.column, mouse.row) {
+                Some(id) => id,
+                None => return,
+            }
+        } else {
+            // Find deepest widget
+            match self.root.find_widget_at(mouse.column, mouse.row) {
+                Some(id) => id,
+                None => return,
+            }
         };
 
         // Build event context
         let ctx = EventContext {
             event_type: event_type.clone(),
             target_id: target_id.clone(),
+            current_target_id: target_id.clone(),
             mouse_x: Some(mouse.column),
             mouse_y: Some(mouse.row),
             scroll_delta: match mouse.kind {
@@ -201,12 +230,28 @@ impl RenderLoop {
                 _ => None,
             },
             key_code: None,
+            propagation_stopped: false,
         };
 
-        // Trigger listeners on the target node
-        if let Some(node) = self.root.find_child_mut(&target_id) {
-            node.trigger_event(&event_type, ctx);
+        // For scroll events, handle scroll state first, then bubble
+        if matches!(
+            mouse.kind,
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
+        ) {
+            let delta = match mouse.kind {
+                MouseEventKind::ScrollUp => -1,
+                MouseEventKind::ScrollDown => 1,
+                _ => 0,
+            };
+
+            // Handle scroll on the target node
+            if let Some(node) = self.root.find_child_mut(&target_id) {
+                node.handle_scroll(delta);
+            }
         }
+
+        // Trigger event with bubbling
+        self.root.trigger_event_with_bubble(&event_type, ctx);
     }
 
     /// Handle a UI message from the framework.

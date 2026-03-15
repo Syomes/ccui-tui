@@ -39,11 +39,22 @@ pub enum EventType {
 #[derive(Clone)]
 pub struct EventContext {
     pub event_type: EventType,
+    /// Original event target (the node that initially triggered the event)
     pub target_id: String,
+    /// Current target (the node whose listener is currently being invoked)
+    pub current_target_id: String,
     pub mouse_x: Option<u16>,
     pub mouse_y: Option<u16>,
     pub scroll_delta: Option<i32>,
     pub key_code: Option<KeyCode>,
+    /// Whether event propagation should stop
+    pub propagation_stopped: bool,
+}
+
+impl EventContext {
+    pub fn stop_propagation(&mut self) {
+        self.propagation_stopped = true;
+    }
 }
 
 /// Event listener callback type.

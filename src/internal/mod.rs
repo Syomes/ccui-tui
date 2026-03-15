@@ -23,6 +23,7 @@ use std::sync::Arc;
 /// - Leaf node (widget): `widget` is Some, `children` is empty
 pub struct Node {
     pub id: String,
+    pub parent_id: Option<String>,
     pub style: Style,
     pub area: Rect,         // Allocated area from layout
     pub content_area: Rect, // Actual content area (for hit testing)
@@ -37,6 +38,7 @@ impl Node {
     pub fn new(id: String) -> Self {
         Node {
             id,
+            parent_id: None,
             style: Style::new().column(),
             area: Rect::default(),
             content_area: Rect::default(),
@@ -237,8 +239,10 @@ impl Node {
         style: Style,
     ) {
         if let Some(parent) = self.find_child_mut(parent_id) {
+            let parent_id_owned = parent.id.clone();
             parent.children.push(Node {
                 id,
+                parent_id: Some(parent_id_owned),
                 style,
                 area: Rect::default(),
                 content_area: Rect::default(),
@@ -252,8 +256,10 @@ impl Node {
 
     pub fn add_container(&mut self, parent_id: &str, id: String, style: Style) {
         if let Some(parent) = self.find_child_mut(parent_id) {
+            let parent_id_owned = parent.id.clone();
             parent.children.push(Node {
                 id,
+                parent_id: Some(parent_id_owned),
                 style,
                 area: Rect::default(),
                 content_area: Rect::default(),
@@ -328,5 +334,80 @@ impl Node {
         for child in &mut self.children {
             child.remove_event_listener(listener_id);
         }
+    }
+
+    /// Trigger event with bubbling (from target up to root).
+    pub fn trigger_event_with_bubble(&self, event_type: &EventType, mut ctx: EventContext) {
+        let original_target = ctx.target_id.clone();
+        let mut current_id = original_target.clone();
+
+        loop {
+            if ctx.propagation_stopped {
+                break;
+            }
+
+            if let Some(node) = self.find_child(&current_id) {
+                ctx.current_target_id = current_id.clone();
+                node.trigger_event(event_type, ctx.clone());
+
+                // Bubble up to parent
+                if let Some(parent_id) = &node.parent_id {
+                    current_id = parent_id.clone();
+                } else {
+                    break; // Reached root
+                }
+            } else {
+                break;
+            }
+        }
+    }
+
+    /// Find a scrollview container at the given position.
+    /// Returns the deepest node with overflow != Visible that contains the point.
+    pub fn find_scrollview_at(&self, x: u16, y: u16) -> Option<String> {
+        if !self.area.contains((x, y).into()) {
+            return None;
+        }
+
+        // Check children first (deepest first)
+        for child in &self.children {
+            if let Some(id) = child.find_scrollview_at(x, y) {
+                return Some(id);
+            }
+        }
+
+        // Check if this node is a scrollview container
+        if self.style.overflow != Overflow::Visible
+            && (self.widget.is_none() || !self.children.is_empty())
+        {
+            Some(self.id.clone())
+        } else {
+            None
+        }
+    }
+
+    /// Handle scroll event by updating scroll_state.
+    pub fn handle_scroll(&mut self, delta: i32) {
+        if let Some(ref mut state) = self.scroll_state {
+            let current = state.offset();
+            // Scroll down for positive delta, up for negative
+            state.set_offset(ratatui::layout::Position::new(
+                current.x,
+                current.y.saturating_add(delta as u16),
+            ));
+        }
+    }
+
+    /// Find a child node by id.
+    fn find_child(&self, id: &str) -> Option<&Node> {
+        if self.id == id {
+            return Some(self);
+        }
+        for child in &self.children {
+            if let Some(found) = child.find_child(id) {
+                return Some(found);
+            }
+        }
+        None
     }
 }
