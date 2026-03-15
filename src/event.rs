@@ -29,6 +29,8 @@ pub enum EventType {
     RightClick,
     ScrollUp,
     ScrollDown,
+    ScrollLeft,
+    ScrollRight,
     Hover,
     Focus,
     Blur,

@@ -387,14 +387,24 @@ impl Node {
     }
 
     /// Handle scroll event by updating scroll_state.
-    pub fn handle_scroll(&mut self, delta: i32) {
+    pub fn handle_scroll(&mut self, delta_x: i32, delta_y: i32) {
         if let Some(ref mut state) = self.scroll_state {
             let current = state.offset();
-            // Scroll down for positive delta, up for negative
-            state.set_offset(ratatui::layout::Position::new(
-                current.x,
-                current.y.saturating_add(delta as u16),
-            ));
+            let new_x = if delta_x > 0 {
+                current.x.saturating_add(delta_x as u16)
+            } else if delta_x < 0 {
+                current.x.saturating_sub((-delta_x) as u16)
+            } else {
+                current.x
+            };
+            let new_y = if delta_y > 0 {
+                current.y.saturating_add(delta_y as u16)
+            } else if delta_y < 0 {
+                current.y.saturating_sub((-delta_y) as u16)
+            } else {
+                current.y
+            };
+            state.set_offset(ratatui::layout::Position::new(new_x, new_y));
         }
     }
 
