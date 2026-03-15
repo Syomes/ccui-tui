@@ -13,11 +13,11 @@ pub(super) fn is_floating(child: &Node) -> bool {
 
 /// Calculate content area (applying border and padding).
 fn content_area(style: &Style, parent_area: Rect) -> Rect {
-    // !Visible containers' children area will be handled by ScrollView
+    // !Visible containers' children area's offset will be handled by ScrollView
     let real_content = if style.overflow == Overflow::Visible {
-        shrink_border(style, parent_area)
+        shrink_and_offset_border(style, parent_area)
     } else {
-        parent_area
+        shrink_border(style, parent_area)
     };
 
     Rect::new(
@@ -34,6 +34,25 @@ fn content_area(style: &Style, parent_area: Rect) -> Rect {
 
 /// Shrink area by border.
 pub fn shrink_border(style: &Style, area: Rect) -> Rect {
+    if style.border_type.is_none() {
+        return area;
+    }
+    Rect::new(
+        area.x,
+        area.y,
+        area.width.saturating_sub(2),
+        area.height.saturating_sub(2),
+    )
+}
+
+pub fn offset_border(style: &Style, area: Rect) -> Rect {
+    if style.border_type.is_none() {
+        return area;
+    }
+    Rect::new(area.x + 1, area.y + 1, area.width, area.height)
+}
+
+pub fn shrink_and_offset_border(style: &Style, area: Rect) -> Rect {
     if style.border_type.is_none() {
         return area;
     }

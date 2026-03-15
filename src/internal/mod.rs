@@ -6,7 +6,7 @@ pub use render::RenderLoop;
 use tui_scrollview::{ScrollView, ScrollViewState, ScrollbarVisibility};
 
 use crate::event::{EventContext, EventListener, EventType, ListenerId};
-use crate::layout::shrink_border;
+use crate::layout::shrink_and_offset_border;
 use crate::style::{Overflow, Style};
 use crate::widget::Widget;
 use ratatui::{buffer::Buffer, layout::Rect};
@@ -181,7 +181,7 @@ impl Node {
         }
 
         if let Some(v) = scroll_view {
-            let area = shrink_border(&self.style, self.area);
+            let area = shrink_and_offset_border(&self.style, self.area);
             v.render(area, buffer, &mut self.scroll_state.as_mut().unwrap());
         }
     }
