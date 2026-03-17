@@ -25,8 +25,8 @@ pub struct Node {
     pub id: String,
     pub parent_id: Option<String>,
     pub style: Style,
-    pub area: Rect,         // Allocated area from layout
-    pub content_area: Rect, // Actual content area (for hit testing)
+    pub viewport_area: Rect, // Visible area from the terminal
+    pub content_area: Rect,  // Actual content area
     pub scroll_state: Option<ScrollViewState>,
     pub widget: Option<Box<dyn Widget>>,
     pub children: Vec<Node>,
@@ -40,7 +40,7 @@ impl Node {
             id,
             parent_id: None,
             style: Style::new().column(),
-            area: Rect::default(),
+            viewport_area: Rect::default(),
             content_area: Rect::default(),
             scroll_state: None,
             widget: None,
@@ -52,7 +52,7 @@ impl Node {
     /// Layout the tree starting from this node.
     pub fn layout(&mut self, parent_area: Rect) {
         // Calculate this node's area based on position_mode
-        self.area = if self.style.position_mode == crate::style::PositionMode::Floating {
+        self.viewport_area = if self.style.position_mode == crate::style::PositionMode::Floating {
             // Floating: use x, y, width, height from style
             Rect::new(
                 self.style.x,
@@ -73,19 +73,27 @@ impl Node {
             parent_area
         };
 
-        // Calculate content area
-        if let Some(widget) = &self.widget {
-            let (w, h) = widget.content_size(self.area);
-            self.content_area = Rect::new(self.area.x, self.area.y, w, h);
-        } else {
-            self.content_area = self.area;
-        }
-
         // Layout children
-        let child_areas =
-            crate::layout::calculate_children_areas(&self.style, self.area, &self.children);
+        let child_areas = crate::layout::calculate_children_areas(
+            &self.style,
+            self.viewport_area,
+            &self.children,
+        );
         for (child, area) in self.children.iter_mut().zip(child_areas) {
             child.layout(area);
+        }
+
+        // Calculate content area after children are laid out
+        if let Some(widget) = &self.widget {
+            // Widget node: use widget's content size
+            let (w, h) = widget.content_size(self.viewport_area);
+            self.content_area = Rect::new(self.viewport_area.x, self.viewport_area.y, w, h);
+        } else if !self.children.is_empty() {
+            // Container node: use union of all children's content_area
+            self.content_area = self.calculate_children_content_union();
+        } else {
+            // Empty container
+            self.content_area = self.viewport_area;
         }
     }
 
@@ -93,7 +101,7 @@ impl Node {
         // If this node has a background color, clear the area first to cover underlying content
         if self.style.bg_color.is_some() {
             use ratatui::widgets::Widget as RatatuiWidget;
-            ratatui::widgets::Clear.render(self.area, buffer);
+            ratatui::widgets::Clear.render(self.viewport_area, buffer);
         }
 
         // Render background if bg_color is set
@@ -101,7 +109,7 @@ impl Node {
             use ratatui::widgets::Widget as RatatuiWidget;
             let block = ratatui::widgets::Block::default()
                 .style(ratatui::style::Style::default().bg(bg_color.into()));
-            block.render(self.area, buffer);
+            block.render(self.viewport_area, buffer);
         }
 
         // Render border for CONTAINERS (nodes without widget or with children)
@@ -126,7 +134,7 @@ impl Node {
                     .borders(ratatui::widgets::Borders::ALL)
                     .merge_borders(MergeStrategy::Exact);
 
-                block.render(self.area, buffer);
+                block.render(self.viewport_area, buffer);
             }
 
             // Handle overflow with or without ScrollView
@@ -136,7 +144,7 @@ impl Node {
                 if self.scroll_state.is_none() {
                     self.scroll_state = Some(ScrollViewState::new());
                 }
-                let size = Size::new(self.area.width, self.area.height);
+                let size = Size::new(self.content_area.width, self.content_area.height);
                 match self.style.overflow {
                     Overflow::Hidden => {
                         scroll_view = Some(
@@ -170,7 +178,7 @@ impl Node {
         if let Some(widget) = &self.widget {
             // Check if this node is focused
             let is_focused = focused_id.map_or(false, |fid| fid == self.id);
-            widget.render(widget_buffer, self.area, &self.style, is_focused);
+            widget.render(widget_buffer, self.viewport_area, &self.style, is_focused);
         }
 
         // Render children sorted by z-index (higher z-index renders on top)
@@ -181,7 +189,7 @@ impl Node {
         }
 
         if let Some(v) = scroll_view {
-            let area = shrink_and_offset_border(&self.style, self.area);
+            let area = shrink_and_offset_border(&self.style, self.viewport_area);
             v.render(area, buffer, &mut self.scroll_state.as_mut().unwrap());
         }
     }
@@ -189,7 +197,7 @@ impl Node {
     /// Find the widget at the given position.
     /// Returns the id of the deepest child that contains the point.
     pub fn find_widget_at(&self, x: u16, y: u16) -> Option<String> {
-        if !self.area.contains((x, y).into()) {
+        if !self.viewport_area.contains((x, y).into()) {
             return None;
         }
 
@@ -244,7 +252,7 @@ impl Node {
                 id,
                 parent_id: Some(parent_id_owned),
                 style,
-                area: Rect::default(),
+                viewport_area: Rect::default(),
                 content_area: Rect::default(),
                 scroll_state: None,
                 widget: Some(widget),
@@ -261,7 +269,7 @@ impl Node {
                 id,
                 parent_id: Some(parent_id_owned),
                 style,
-                area: Rect::default(),
+                viewport_area: Rect::default(),
                 content_area: Rect::default(),
                 scroll_state: None,
                 widget: None,
@@ -365,7 +373,7 @@ impl Node {
     /// Find a scrollview container at the given position.
     /// Returns the deepest node with overflow != Visible that contains the point.
     pub fn find_scrollview_at(&self, x: u16, y: u16) -> Option<String> {
-        if !self.area.contains((x, y).into()) {
+        if !self.viewport_area.contains((x, y).into()) {
             return None;
         }
 
@@ -419,5 +427,32 @@ impl Node {
             }
         }
         None
+    }
+
+    /// Calculate the union of all children's content_area.
+    /// Returns a Rect that encompasses all children's content.
+    fn calculate_children_content_union(&self) -> Rect {
+        if self.children.is_empty() {
+            return self.viewport_area;
+        }
+
+        let mut min_x = u16::MAX;
+        let mut min_y = u16::MAX;
+        let mut max_x = 0u16;
+        let mut max_y = 0u16;
+
+        for child in &self.children {
+            min_x = min_x.min(child.content_area.x);
+            min_y = min_y.min(child.content_area.y);
+            max_x = max_x.max(child.content_area.x + child.content_area.width);
+            max_y = max_y.max(child.content_area.y + child.content_area.height);
+        }
+
+        Rect::new(
+            min_x,
+            min_y,
+            max_x.saturating_sub(min_x),
+            max_y.saturating_sub(min_y),
+        )
     }
 }
