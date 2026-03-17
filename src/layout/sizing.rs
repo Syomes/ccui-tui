@@ -61,7 +61,12 @@ pub fn calculate_content_size(node: &Node, available_area: Rect) -> (u16, u16) {
 /// Returns (total_width, total_height).
 fn calculate_container_content(node: &Node, ctx: &LayoutContext) -> (u16, u16) {
     // Available space (minus own padding/border)
-    let inner_available = Rect::new(0, 0, ctx.main_size(), ctx.cross_size());
+    let inner_available = Rect::new(
+        0,
+        0,
+        ctx.cross_size(), // width
+        ctx.main_size(),  // height
+    );
 
     match ctx.direction {
         FlexDirection::Row => {
@@ -142,7 +147,12 @@ fn calc_tiled_sizes(_style: &Style, children: &[Node], ctx: &LayoutContext) -> V
 
 /// Auto mode: size based on content.
 fn calc_auto_sizes(_style: &Style, children: &[Node], ctx: &LayoutContext) -> Vec<u16> {
-    let available = Rect::new(0, 0, ctx.main_size(), ctx.cross_size());
+    let available = Rect::new(
+        0,
+        0,
+        ctx.cross_size(), // width
+        ctx.main_size(),  // height
+    );
 
     children
         .iter()
