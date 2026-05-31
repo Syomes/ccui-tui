@@ -10,8 +10,23 @@ use crate::event::{Event, EventContext, EventType, ListenerId, UiMessage};
 use crate::internal::RenderLoop;
 use crate::style::Style;
 use crate::widget::Widget;
-use std::collections::HashMap;
 use std::panic;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::{collections::HashMap};
+
+/// Global flag to track if the terminal has been restored to prevent double-restoring
+/// during panics which causes the cursor to be restored *above* the panic message.
+static TERMINAL_RESTORED: AtomicBool = AtomicBool::new(true);
+
+/// Restore the terminal to its normal state.
+pub(crate) fn restore_terminal() {
+    if !TERMINAL_RESTORED.swap(true, Ordering::SeqCst) {
+        let _ = terminal::disable_raw_mode();
+        let _ = std::io::stdout().execute(LeaveAlternateScreen);
+        let _ = std::io::stdout().execute(DisableMouseCapture);
+        let _ = std::io::stdout().execute(crossterm::cursor::Show);
+    }
+}
 
 /// A container that can hold widgets and other containers.
 pub trait Container {
@@ -71,9 +86,7 @@ pub struct Document {
 impl Drop for Document {
     fn drop(&mut self) {
         // Cleanup terminal on exit
-        let _ = terminal::disable_raw_mode();
-        let _ = std::io::stdout().execute(LeaveAlternateScreen);
-        let _ = std::io::stdout().execute(DisableMouseCapture);
+        restore_terminal();
     }
 }
 
@@ -288,17 +301,23 @@ pub struct Ui;
 
 impl Ui {
     pub fn run() -> Result<Document, Box<dyn std::error::Error>> {
+        TERMINAL_RESTORED.store(false, Ordering::SeqCst);
+
         // Issue #3: Panic safety - ensure terminal is restored on panic
         // Cleanup terminal on panic
         // This ensures that if the application panics, the terminal will output in its original state.
         let original_hook = panic::take_hook();
         panic::set_hook(Box::new(move |panic_info| {
-            let _ = terminal::disable_raw_mode();
-            let _ = std::io::stdout().execute(LeaveAlternateScreen);
-            let _ = std::io::stdout().execute(DisableMouseCapture);
+            restore_terminal();
+            
+            eprintln!("\n\r!!!!!!!!!!!!!!!!!!!! PROCESS PANIC !!!!!!!!!!!!!!!!!!!!");
             original_hook(panic_info);
+            eprintln!("\r!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+            
+            use std::io::Write;
+            let _ = std::io::stderr().flush();
         }));
-
+        
         // Enter alternate screen and raw mode
         terminal::enable_raw_mode()?;
         std::io::stdout().execute(EnterAlternateScreen)?;
