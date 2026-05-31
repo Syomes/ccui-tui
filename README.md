@@ -20,7 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     doc.add_widget("title", Text::new("Hello"))?;
 
     // Add container with children
-    let row = doc.add_container("row", Style::new().row())?;
+    let mut row = doc.add_container("row", Style::new().row())?;
     row.add_widget("left", Text::new("Left"))?;
     row.add_widget("right", Text::new("Right"))?;
 
