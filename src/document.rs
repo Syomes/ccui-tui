@@ -310,7 +310,7 @@ impl Ui {
         panic::set_hook(Box::new(move |panic_info| {
             restore_terminal();
 
-            eprintln!("\n\r!!!!!!!!!!!!!!!!!!!! PROCESS PANIC !!!!!!!!!!!!!!!!!!!!");
+            eprintln!("\n\r!!!!!!!!!!!!!!!!!! RENDER LOOP PANIC !!!!!!!!!!!!!!!!!!");
             original_hook(panic_info);
             eprintln!("\n\r!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
 
