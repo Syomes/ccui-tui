@@ -221,8 +221,8 @@ impl RenderLoop {
             }
         };
 
-        // Check if Shift is pressed (for horizontal scroll)
-        let shift_pressed = mouse.modifiers.contains(KeyModifiers::SHIFT);
+        // Check if Alt is pressed (for horizontal scroll)
+        let alt_pressed = mouse.modifiers.contains(KeyModifiers::ALT);
 
         // Build event context
         let ctx = EventContext {
@@ -251,8 +251,8 @@ impl RenderLoop {
             let (delta_x, delta_y) = match mouse.kind {
                 MouseEventKind::ScrollLeft => (-1, 0),
                 MouseEventKind::ScrollRight => (1, 0),
-                MouseEventKind::ScrollUp if shift_pressed => (-1, 0),
-                MouseEventKind::ScrollDown if shift_pressed => (1, 0),
+                MouseEventKind::ScrollUp if alt_pressed => (-1, 0),
+                MouseEventKind::ScrollDown if alt_pressed => (1, 0),
                 MouseEventKind::ScrollUp => (0, -1),
                 MouseEventKind::ScrollDown => (0, 1),
                 _ => (0, 0),
