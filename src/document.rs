@@ -10,9 +10,9 @@ use crate::event::{Event, EventContext, EventType, ListenerId, UiMessage};
 use crate::internal::RenderLoop;
 use crate::style::Style;
 use crate::widget::Widget;
-use std::panic;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::{collections::HashMap};
+use std::{collections::HashMap, process::exit};
+use std::{io::Write, panic};
 
 /// Global flag to track if the terminal has been restored to prevent double-restoring
 /// during panics which causes the cursor to be restored *above* the panic message.
@@ -309,15 +309,15 @@ impl Ui {
         let original_hook = panic::take_hook();
         panic::set_hook(Box::new(move |panic_info| {
             restore_terminal();
-            
+
             eprintln!("\n\r!!!!!!!!!!!!!!!!!!!! PROCESS PANIC !!!!!!!!!!!!!!!!!!!!");
             original_hook(panic_info);
-            eprintln!("\r!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
-            
-            use std::io::Write;
+            eprintln!("\n\r!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+
             let _ = std::io::stderr().flush();
+            exit(1)
         }));
-        
+
         // Enter alternate screen and raw mode
         terminal::enable_raw_mode()?;
         std::io::stdout().execute(EnterAlternateScreen)?;
