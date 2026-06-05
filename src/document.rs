@@ -10,9 +10,9 @@ use crate::event::{Event, EventContext, EventType, ListenerId, UiMessage};
 use crate::internal::RenderLoop;
 use crate::style::Style;
 use crate::widget::Widget;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::{collections::HashMap, process::exit};
-use std::{io::Write, panic};
+use std::{io::Write, panic, process::exit};
 
 /// Global flag to track if the terminal has been restored to prevent double-restoring
 /// during panics which causes the cursor to be restored *above* the panic message.
@@ -303,7 +303,7 @@ impl Ui {
     pub fn run() -> Result<Document, Box<dyn std::error::Error>> {
         TERMINAL_RESTORED.store(false, Ordering::SeqCst);
 
-        // Issue #3: Panic safety - ensure terminal is restored on panic
+        // Issue #3: Panic safety — ensure terminal is restored on panic
         // Cleanup terminal on panic
         // This ensures that if the application panics, the terminal will output in its original state.
         let original_hook = panic::take_hook();
@@ -312,7 +312,7 @@ impl Ui {
 
             eprintln!("\n\r!!!!!!!!!!!!!!!!!! RENDER LOOP PANIC !!!!!!!!!!!!!!!!!!");
             original_hook(panic_info);
-            eprintln!("\n\r!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+            eprintln!("\n\r!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
 
             let _ = std::io::stderr().flush();
             exit(1)

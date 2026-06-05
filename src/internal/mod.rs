@@ -25,7 +25,7 @@ pub struct Node {
     pub id: String,
     pub parent_id: Option<String>,
     pub style: Style,
-    pub viewport_area: Rect, // Visible area from the terminal
+    pub viewport_area: Rect, // Visible area in the terminal
     pub content_area: Rect,  // Actual content area
     pub scroll_state: Option<ScrollViewState>,
     pub widget: Option<Box<dyn Widget>>,
@@ -98,22 +98,25 @@ impl Node {
     }
 
     pub fn render(&mut self, buffer: &mut Buffer, focused_id: Option<&str>) {
-        // If this node has a background color, clear the area first to cover underlying content
-        if self.style.bg_color.is_some() {
-            use ratatui::widgets::Widget as RatatuiWidget;
-            ratatui::widgets::Clear.render(self.viewport_area, buffer);
-        }
+        let mut scroll_view: Option<ScrollView> = None;
+        let buffer_area = *buffer.area();
 
         // Render background if bg_color is set
         if let Some(bg_color) = self.style.bg_color {
             use ratatui::widgets::Widget as RatatuiWidget;
-            let block = ratatui::widgets::Block::default()
-                .style(ratatui::style::Style::default().bg(bg_color.into()));
-            block.render(self.viewport_area, buffer);
+
+            let render_area = self.viewport_area.intersection(buffer_area);
+            if render_area.width > 0 && render_area.height > 0 {
+                // If this node has a background color, clear the area first to cover underlying content
+                ratatui::widgets::Clear.render(render_area, buffer);
+
+                let block = ratatui::widgets::Block::default()
+                    .style(ratatui::style::Style::default().bg(bg_color.into()));
+                block.render(render_area, buffer);
+            }
         }
 
         // Render border for CONTAINERS (nodes without widget or with children)
-        let mut scroll_view: Option<ScrollView> = None;
         if self.widget.is_none() || !self.children.is_empty() {
             if let Some(border_type) = self.style.border_type {
                 use crate::style::BorderType;
@@ -134,7 +137,11 @@ impl Node {
                     .borders(ratatui::widgets::Borders::ALL)
                     .merge_borders(MergeStrategy::Exact);
 
-                block.render(self.viewport_area, buffer);
+                let render_area = self.viewport_area.intersection(buffer_area);
+                // Only render block if we have space
+                if render_area.width >= 2 && render_area.height >= 2 {
+                    block.render(render_area, buffer);
+                }
             }
 
             // Handle overflow with or without ScrollView
@@ -144,6 +151,7 @@ impl Node {
                 if self.scroll_state.is_none() {
                     self.scroll_state = Some(ScrollViewState::new());
                 }
+                // ScrollView size should include space for scrollbar
                 let size = Size::new(self.content_area.width, self.content_area.height);
                 match self.style.overflow {
                     Overflow::Hidden => {
@@ -178,7 +186,11 @@ impl Node {
         if let Some(widget) = &self.widget {
             // Check if this node is focused
             let is_focused = focused_id.map_or(false, |fid| fid == self.id);
-            widget.render(widget_buffer, self.viewport_area, &self.style, is_focused);
+            // Still pass viewport_area, but widgets should ideally handle clipping or we should clip here
+            let render_area = self.viewport_area.intersection(*widget_buffer.area());
+            if render_area.width > 0 && render_area.height > 0 {
+                widget.render(widget_buffer, self.viewport_area, &self.style, is_focused);
+            }
         }
 
         // Render children sorted by z-index (higher z-index renders on top)
@@ -190,7 +202,10 @@ impl Node {
 
         if let Some(v) = scroll_view {
             let area = shrink_and_offset_border(&self.style, self.viewport_area);
-            v.render(area, buffer, &mut self.scroll_state.as_mut().unwrap());
+            let render_area = area.intersection(buffer_area);
+            if render_area.width > 0 && render_area.height > 0 {
+                v.render(render_area, buffer, &mut self.scroll_state.as_mut().unwrap());
+            }
         }
     }
 
@@ -442,10 +457,20 @@ impl Node {
         let mut max_y = 0u16;
 
         for child in &self.children {
-            min_x = min_x.min(child.content_area.x);
-            min_y = min_y.min(child.content_area.y);
-            max_x = max_x.max(child.content_area.x + child.content_area.width);
-            max_y = max_y.max(child.content_area.y + child.content_area.height);
+            // A child always occupies its viewport_area
+            let mut areas = vec![child.viewport_area];
+
+            // If the child has visible overflow, its content can extend beyond viewport
+            if child.style.overflow == Overflow::Visible {
+                areas.push(child.content_area);
+            }
+
+            for area in areas {
+                min_x = min_x.min(area.x);
+                min_y = min_y.min(area.y);
+                max_x = max_x.max(area.x.saturating_add(area.width));
+                max_y = max_y.max(area.y.saturating_add(area.height));
+            }
         }
 
         Rect::new(
