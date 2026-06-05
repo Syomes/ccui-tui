@@ -6,10 +6,13 @@ use crossterm::{
 use ratatui::{Terminal, backend::CrosstermBackend};
 use tokio::sync::mpsc;
 
-use crate::event::{Event, EventContext, EventType, ListenerId, UiMessage};
 use crate::internal::RenderLoop;
 use crate::style::Style;
 use crate::widget::Widget;
+use crate::{
+    event::{Event, EventContext, EventType, ListenerId, UiMessage},
+    util::console,
+};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{collections::HashMap, process::exit};
 use std::{io::Write, panic};
@@ -25,6 +28,16 @@ pub(crate) fn restore_terminal() {
         let _ = std::io::stdout().execute(LeaveAlternateScreen);
         let _ = std::io::stdout().execute(DisableMouseCapture);
         let _ = std::io::stdout().execute(crossterm::cursor::Show);
+    }
+
+    // TODO: put this into real console panel
+    let logs = console().get_logs();
+    if !logs.is_empty() {
+        println!("==================== Logs in Console ====================\n");
+        logs.iter().for_each(|l| {
+            println!("{:?} - {:?} - {}", l.timestamp, l.level, l.message);
+        });
+        println!("=======================================================");
     }
 }
 
