@@ -34,40 +34,14 @@ impl Console {
         }
     }
 
-    /// Log a message.
-    pub fn log(&self, message: impl Into<String>) {
-        self.log_level(LogLevel::Info, message);
-    }
-
-    /// Log a debug message.
-    pub fn debug(&self, message: impl Into<String>) {
-        self.log_level(LogLevel::Debug, message);
-    }
-
-    /// Log an info message.
-    pub fn info(&self, message: impl Into<String>) {
-        self.log_level(LogLevel::Info, message);
-    }
-
-    /// Log a warning message.
-    pub fn warn(&self, message: impl Into<String>) {
-        self.log_level(LogLevel::Warn, message);
-    }
-
-    /// Log an error message.
-    pub fn error(&self, message: impl Into<String>) {
-        self.log_level(LogLevel::Error, message);
-    }
-
     /// Internal log method.
-    fn log_level(&self, level: LogLevel, message: impl Into<String>) {
+    pub fn log_level(&self, level: LogLevel, args: std::fmt::Arguments) {
         let mut logs = self.logs.lock();
         logs.push(LogEntry {
             level,
-            message: message.into(),
+            message: args.to_string(),
             timestamp: SystemTime::now(),
         });
-
         while logs.len() > self.max_logs {
             logs.remove(0);
         }
@@ -123,7 +97,6 @@ impl Default for Console {
 
 // Global singleton
 use once_cell::sync::Lazy;
-
 static GLOBAL_CONSOLE: Lazy<Console> = Lazy::new(Console::default);
 
 /// Get the global console instance.
@@ -131,23 +104,69 @@ pub fn console() -> &'static Console {
     &GLOBAL_CONSOLE
 }
 
-// Convenience functions (same as browser)
-pub fn log(message: impl Into<String>) {
-    console().log(message);
+/// Log an info message.
+#[macro_export]
+macro_rules! log {
+    ($($arg:tt)*) => {
+        $crate::util::console::console().log_level(
+            $crate::util::console::LogLevel::Info,
+            ::std::format_args!($($arg)*),
+        )
+    };
 }
 
-pub fn debug(message: impl Into<String>) {
-    console().debug(message);
+/// Log a debug message.
+#[macro_export]
+macro_rules! debug {
+    ($($arg:tt)*) => {
+        $crate::util::console::console().log_level(
+            $crate::util::console::LogLevel::Debug,
+            ::std::format_args!($($arg)*),
+        )
+    };
 }
 
-pub fn info(message: impl Into<String>) {
-    console().info(message);
+/// Log an info message.
+#[macro_export]
+macro_rules! info {
+    ($($arg:tt)*) => {
+        $crate::util::console::console().log_level(
+            $crate::util::console::LogLevel::Info,
+            ::std::format_args!($($arg)*),
+        )
+    };
 }
 
-pub fn warn(message: impl Into<String>) {
-    console().warn(message);
+/// Log a warning message.
+#[macro_export]
+macro_rules! warn {
+    ($($arg:tt)*) => {
+        $crate::util::console::console().log_level(
+            $crate::util::console::LogLevel::Warn,
+            ::std::format_args!($($arg)*),
+        )
+    };
 }
 
-pub fn error(message: impl Into<String>) {
-    console().error(message);
+/// Log an error message.
+#[macro_export]
+macro_rules! error {
+    ($($arg:tt)*) => {
+        $crate::util::console::console().log_level(
+            $crate::util::console::LogLevel::Error,
+            ::std::format_args!($($arg)*),
+        )
+    };
 }
+
+// Re-export to make them accessible from the module path (console::log!("..."))
+#[allow(unused_imports)]
+pub(crate) use crate::debug;
+#[allow(unused_imports)]
+pub(crate) use crate::error;
+#[allow(unused_imports)]
+pub(crate) use crate::info;
+#[allow(unused_imports)]
+pub(crate) use crate::log;
+#[allow(unused_imports)]
+pub(crate) use crate::warn;
