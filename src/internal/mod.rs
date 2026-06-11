@@ -204,7 +204,11 @@ impl Node {
             let area = shrink_and_offset_border(&self.style, self.viewport_area);
             let render_area = area.intersection(buffer_area);
             if render_area.width > 0 && render_area.height > 0 {
-                v.render(render_area, buffer, &mut self.scroll_state.as_mut().unwrap());
+                v.render(
+                    render_area,
+                    buffer,
+                    &mut self.scroll_state.as_mut().unwrap(),
+                );
             }
         }
     }
