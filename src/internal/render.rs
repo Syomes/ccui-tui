@@ -128,7 +128,9 @@ impl RenderLoop {
                                         state.focused_id = Some(id.clone());
                                         let ctx = EventContext::new(EventType::Focus, id)
                                             .with_mouse(mouse.column, mouse.row);
-                                        state.root.trigger_event_with_bubble(&EventType::Focus, ctx);
+                                        state
+                                            .root
+                                            .trigger_event_with_bubble(&EventType::Focus, ctx);
                                     }
                                 }
 
@@ -161,8 +163,7 @@ impl RenderLoop {
     fn trigger_global_listeners(&self, event_type: &EventType, key: KeyEvent) {
         if let Some(listeners) = self.global_listeners.get(event_type) {
             for (_, listener) in listeners {
-                let ctx = EventContext::new(event_type.clone(), "global")
-                    .with_key(key.code);
+                let ctx = EventContext::new(event_type.clone(), "global").with_key(key.code);
                 listener(ctx);
             }
         }
@@ -462,8 +463,7 @@ mod tests {
 
         // Simulate the exact block you selected: find widget at coords and trigger click
         if rl.root.find_child_mut("w1").is_some() {
-            let ctx = EventContext::new(EventType::Click, "w1")
-                .with_mouse(0, 0);
+            let ctx = EventContext::new(EventType::Click, "w1").with_mouse(0, 0);
             rl.root.trigger_event_with_bubble(&EventType::Click, ctx);
         }
         assert!(fired.load(Ordering::SeqCst));
