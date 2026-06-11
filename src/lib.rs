@@ -3,7 +3,12 @@
 //! # Quick Start
 //!
 //! ```rust,no_run
-//! use ccui::{Ui, Text, Style, Container, EventType};
+//! use ccui::{
+//!     event::{Event, EventType},
+//!     style::Style,
+//!     widget::Text,
+//!     Container, Ui
+//! };
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -13,7 +18,7 @@
 //!     doc.add_widget("title", Text::new("Hello"))?;
 //!
 //!     // Add container with children
-//!     let row = doc.add_container("row", Style::new().row())?;
+//!     let mut row = doc.add_container("row", Style::new().row())?;
 //!     row.add_widget("btn", Text::new("Click me"))?;
 //!
 //!     // Add event listener
@@ -23,7 +28,7 @@
 //!
 //!     // Handle events
 //!     while let Some(event) = doc.event_receiver().recv().await {
-//!         if let ccui::Event::Key(key) = event {
+//!         if let Event::Key(key) = event {
 //!             if key.code == crossterm::event::KeyCode::Char('q') {
 //!                 break;
 //!             }
