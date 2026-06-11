@@ -7,19 +7,21 @@ use std::sync::Arc;
 ///
 /// # Example
 /// ```rust
-/// use ccui::Shared;
+/// use ccui::util::shared::Shared;
 ///
 /// let counter = Shared::new(0);
 ///
-/// // Clone reference (not cloning data)
-/// let counter2 = counter.clone_ref();
+/// // Write to the shared value
+/// counter.with(|c| *c += 1);
 ///
-/// doc.add_event_listener("btn", EventType::Click, {
-///     let counter = counter.clone_ref();
-///     move |_| {
-///         counter.with(|c| *c += 1);
-///     }
-/// })?;
+/// // Read from it
+/// let val = counter.read(|c| *c);
+/// assert_eq!(val, 1);
+///
+/// // Clone the reference (both point to the same data)
+/// let counter2 = counter.clone_ref();
+/// counter2.with(|c| *c += 1);
+/// assert_eq!(counter.read(|c| *c), 2);
 /// ```
 pub struct Shared<T>(Arc<Mutex<T>>);
 
@@ -40,6 +42,8 @@ impl<T> Shared<T> {
     ///
     /// # Example
     /// ```rust
+    /// # use ccui::util::shared::Shared;
+    /// # let counter = Shared::new(0);
     /// counter.with(|c| *c += 1);
     /// ```
     pub fn with<F, R>(&self, f: F) -> R
@@ -53,6 +57,8 @@ impl<T> Shared<T> {
     ///
     /// # Example
     /// ```rust
+    /// # use ccui::util::shared::Shared;
+    /// # let counter = Shared::new(0);
     /// let value = counter.read(|c| *c);
     /// ```
     pub fn read<F, R>(&self, f: F) -> R
