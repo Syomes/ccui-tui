@@ -1,5 +1,8 @@
 use ccui::{
-    Container, Ui, event::Event, style::{BorderType, Color, Overflow, Style}, widget::Text
+    Container, Ui,
+    event::Event,
+    style::{BorderType, Color, Overflow, Style},
+    widget::Text,
 };
 use crossterm::event::KeyCode;
 
@@ -18,7 +21,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     win.update_style(|s| {
         s.overflow = Overflow::Scroll;
     })?;
-    let mut cont = win.add_container("cont", Style::new().row().auto().border(BorderType::Plain))?;
+    let mut cont =
+        win.add_container("cont", Style::new().row().auto().border(BorderType::Plain))?;
     cont.update_style(|s| {
         s.bg_color = Some(Color::Blue);
     })?;
@@ -34,13 +38,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 KeyCode::F(12) => {
                     doc.toggle_mouse_capture()?;
                 }
-                KeyCode::Tab => {
-                }
+                KeyCode::Tab => {}
                 _ => {}
             }
         }
     }
 
     Ok(())
-
 }
