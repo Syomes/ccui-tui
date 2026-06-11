@@ -54,6 +54,41 @@ pub struct EventContext {
 }
 
 impl EventContext {
+    /// Create a new EventContext with sensible defaults.
+    /// `target_id` is used for both `target_id` and `current_target_id`.
+    pub fn new(event_type: EventType, target_id: &str) -> Self {
+        let id = target_id.to_string();
+        EventContext {
+            event_type,
+            current_target_id: id.clone(),
+            target_id: id,
+            mouse_x: None,
+            mouse_y: None,
+            scroll_delta: None,
+            key_code: None,
+            propagation_stopped: false,
+        }
+    }
+
+    /// Set mouse coordinates on this context.
+    pub fn with_mouse(mut self, x: u16, y: u16) -> Self {
+        self.mouse_x = Some(x);
+        self.mouse_y = Some(y);
+        self
+    }
+
+    /// Set key code on this context.
+    pub fn with_key(mut self, code: KeyCode) -> Self {
+        self.key_code = Some(code);
+        self
+    }
+
+    /// Set scroll delta on this context.
+    pub fn with_scroll(mut self, delta: i32) -> Self {
+        self.scroll_delta = Some(delta);
+        self
+    }
+
     pub fn stop_propagation(&mut self) {
         self.propagation_stopped = true;
     }
