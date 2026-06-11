@@ -54,6 +54,11 @@ impl RenderLoop {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut state = Self::new();
 
+        // tick function to yield the run time
+        async fn tick() {
+            tokio::time::sleep(std::time::Duration::from_millis(0)).await;
+        }
+
         loop {
             // Render the tree
             let _ = terminal.draw(|f| {
@@ -75,87 +80,82 @@ impl RenderLoop {
             }
 
             // Poll terminal events and dispatch
-            if let Ok(true) = event_source.poll(std::time::Duration::ZERO) {
-                if let Ok(event) = event_source.read() {
-                    match event {
-                        crossterm::event::Event::Key(key) => {
-                            // focused widget (if any)
-                            if let Some(ref focused_id) = state.focused_id {
-                                if let Some(node) = state.root.find_child_mut(focused_id) {
-                                    if let Some(widget) = &mut node.widget {
-                                        widget.handle_key(key);
-                                    }
-
-                                    // Trigger key press event listeners on the node with bubbling
-                                    let ctx = EventContext::new(
-                                        EventType::KeyPress(key.code),
-                                        focused_id,
-                                    )
-                                    .with_key(key.code);
-                                    state.root.trigger_event_with_bubble(
-                                        &EventType::KeyPress(key.code),
-                                        ctx,
-                                    );
-                                }
+            let (Ok(true), Ok(event)) = (
+                event_source.poll(std::time::Duration::ZERO),
+                event_source.read(),
+            ) else {
+                tick().await;
+                continue;
+            };
+            match event {
+                crossterm::event::Event::Key(key) => {
+                    // focused widget (if any)
+                    if let Some(ref focused_id) = state.focused_id {
+                        if let Some(node) = state.root.find_child_mut(focused_id) {
+                            if let Some(widget) = &mut node.widget {
+                                widget.handle_key(key);
                             }
 
-                            // Global listeners (triggered after bubbling)
-                            state.trigger_global_listeners(&EventType::KeyPress(key.code), key);
-
-                            // Forward to user
-                            let _ = event_tx.try_send(Event::Key(key));
+                            // Trigger key press event listeners on the node with bubbling
+                            let ctx = EventContext::new(EventType::KeyPress(key.code), focused_id)
+                                .with_key(key.code);
+                            state
+                                .root
+                                .trigger_event_with_bubble(&EventType::KeyPress(key.code), ctx);
                         }
-                        crossterm::event::Event::Mouse(mouse) => {
-                            // Forward to user
-                            let _ = event_tx.try_send(Event::Mouse(mouse.clone()));
-
-                            // Handle click for focus
-                            if mouse.kind
-                                == MouseEventKind::Down(crossterm::event::MouseButton::Left)
-                            {
-                                let clicked_id = state.root.find_widget_at(mouse.column, mouse.row);
-
-                                // Update focus
-                                if clicked_id.as_ref() != state.focused_id.as_ref() {
-                                    // Blur old
-                                    if let Some(old_id) = state.focused_id.take() {
-                                        let ctx = EventContext::new(EventType::Blur, &old_id);
-                                        state.root.trigger_event_with_bubble(&EventType::Blur, ctx);
-                                    }
-
-                                    // Focus new (if clicked on a widget)
-                                    if let Some(ref id) = clicked_id {
-                                        state.focused_id = Some(id.clone());
-                                        let ctx = EventContext::new(EventType::Focus, id)
-                                            .with_mouse(mouse.column, mouse.row);
-                                        state
-                                            .root
-                                            .trigger_event_with_bubble(&EventType::Focus, ctx);
-                                    }
-                                }
-
-                                // Trigger click listeners with bubbling (if clicked on a widget)
-                                if let Some(ref id) = clicked_id {
-                                    let ctx = EventContext::new(EventType::Click, id)
-                                        .with_mouse(mouse.column, mouse.row);
-                                    state.root.trigger_event_with_bubble(&EventType::Click, ctx);
-                                }
-                            }
-
-                            // Dispatch to element under mouse
-                            state.dispatch_mouse_event(mouse);
-                        }
-                        crossterm::event::Event::Resize(w, h) => {
-                            // Forward to user
-                            let _ = event_tx.try_send(Event::Resize(w, h));
-                        }
-                        _ => {}
                     }
+
+                    // Global listeners (triggered after bubbling)
+                    state.trigger_global_listeners(&EventType::KeyPress(key.code), key);
+
+                    // Forward to user
+                    let _ = event_tx.try_send(Event::Key(key));
                 }
+                crossterm::event::Event::Mouse(mouse) => {
+                    // Forward to user
+                    let _ = event_tx.try_send(Event::Mouse(mouse.clone()));
+
+                    // Handle click for focus
+                    if mouse.kind == MouseEventKind::Down(crossterm::event::MouseButton::Left) {
+                        let clicked_id = state.root.find_widget_at(mouse.column, mouse.row);
+
+                        // Update focus
+                        if clicked_id.as_ref() != state.focused_id.as_ref() {
+                            // Blur old
+                            if let Some(old_id) = state.focused_id.take() {
+                                let ctx = EventContext::new(EventType::Blur, &old_id);
+                                state.root.trigger_event_with_bubble(&EventType::Blur, ctx);
+                            }
+
+                            // Focus new (if clicked on a widget)
+                            if let Some(ref id) = clicked_id {
+                                state.focused_id = Some(id.clone());
+                                let ctx = EventContext::new(EventType::Focus, id)
+                                    .with_mouse(mouse.column, mouse.row);
+                                state.root.trigger_event_with_bubble(&EventType::Focus, ctx);
+                            }
+                        }
+
+                        // Trigger click listeners with bubbling (if clicked on a widget)
+                        if let Some(ref id) = clicked_id {
+                            let ctx = EventContext::new(EventType::Click, id)
+                                .with_mouse(mouse.column, mouse.row);
+                            state.root.trigger_event_with_bubble(&EventType::Click, ctx);
+                        }
+                    }
+
+                    // Dispatch to element under mouse
+                    state.dispatch_mouse_event(mouse);
+                }
+                crossterm::event::Event::Resize(w, h) => {
+                    // Forward to user
+                    let _ = event_tx.try_send(Event::Resize(w, h));
+                }
+                _ => {}
             }
 
             // TODO: add user-configurable FPS limit here
-            tokio::time::sleep(tokio::time::Duration::from_millis(0)).await;
+            tick().await;
         }
     }
 
