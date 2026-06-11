@@ -7,8 +7,7 @@ use tokio::sync::mpsc;
 
 use crate::event::{Event, EventContext, EventType, ListenerId, UiMessage};
 use crate::internal::Node;
-use std::collections::HashMap;
-use std::io;
+use std::{collections::HashMap, io};
 
 /// Trait for abstracting crossterm event polling, enabling mock event sources in tests.
 pub(crate) trait EventSource {
@@ -87,75 +86,92 @@ impl RenderLoop {
                 tick().await;
                 continue;
             };
-            match event {
-                crossterm::event::Event::Key(key) => {
-                    // focused widget (if any)
-                    if let Some(ref focused_id) = state.focused_id {
-                        if let Some(node) = state.root.find_child_mut(focused_id) {
-                            if let Some(widget) = &mut node.widget {
-                                widget.handle_key(key);
-                            }
 
-                            // Trigger key press event listeners on the node with bubbling
-                            let ctx = EventContext::new(EventType::KeyPress(key.code), focused_id)
-                                .with_key(key.code);
-                            state
-                                .root
-                                .trigger_event_with_bubble(&EventType::KeyPress(key.code), ctx);
-                        }
-                    }
-
-                    // Global listeners (triggered after bubbling)
-                    state.trigger_global_listeners(&EventType::KeyPress(key.code), key);
-
-                    // Forward to user
-                    let _ = event_tx.try_send(Event::Key(key));
-                }
-                crossterm::event::Event::Mouse(mouse) => {
-                    // Forward to user
-                    let _ = event_tx.try_send(Event::Mouse(mouse.clone()));
-
-                    // Handle click for focus
-                    if mouse.kind == MouseEventKind::Down(crossterm::event::MouseButton::Left) {
-                        let clicked_id = state.root.find_widget_at(mouse.column, mouse.row);
-
-                        // Update focus
-                        if clicked_id.as_ref() != state.focused_id.as_ref() {
-                            // Blur old
-                            if let Some(old_id) = state.focused_id.take() {
-                                let ctx = EventContext::new(EventType::Blur, &old_id);
-                                state.root.trigger_event_with_bubble(&EventType::Blur, ctx);
-                            }
-
-                            // Focus new (if clicked on a widget)
-                            if let Some(ref id) = clicked_id {
-                                state.focused_id = Some(id.clone());
-                                let ctx = EventContext::new(EventType::Focus, id)
-                                    .with_mouse(mouse.column, mouse.row);
-                                state.root.trigger_event_with_bubble(&EventType::Focus, ctx);
-                            }
-                        }
-
-                        // Trigger click listeners with bubbling (if clicked on a widget)
-                        if let Some(ref id) = clicked_id {
-                            let ctx = EventContext::new(EventType::Click, id)
-                                .with_mouse(mouse.column, mouse.row);
-                            state.root.trigger_event_with_bubble(&EventType::Click, ctx);
-                        }
-                    }
-
-                    // Dispatch to element under mouse
-                    state.dispatch_mouse_event(mouse);
-                }
-                crossterm::event::Event::Resize(w, h) => {
-                    // Forward to user
-                    let _ = event_tx.try_send(Event::Resize(w, h));
-                }
-                _ => {}
-            }
+            state.handle_terminal_event(event, &event_tx);
 
             // TODO: add user-configurable FPS limit here
             tick().await;
+        }
+    }
+
+    fn handle_terminal_event(
+        &mut self,
+        event: crossterm::event::Event,
+        event_tx: &mpsc::Sender<Event>,
+    ) {
+        match event {
+            crossterm::event::Event::Key(key) => {
+                // First handle focus and bubbling for the focused widget
+                let mut handle_key = || {
+                    // focused widget (if any)
+                    let Some(ref focused_id) = self.focused_id else {
+                        return;
+                    };
+                    let Some(node) = self.root.find_child_mut(focused_id) else {
+                        return;
+                    };
+                    if let Some(widget) = &mut node.widget {
+                        widget.handle_key(key);
+                    }
+
+                    // Trigger key press event listeners on the node with bubbling
+                    let ctx = EventContext::new(EventType::KeyPress(key.code), focused_id)
+                        .with_key(key.code);
+                    self.root
+                        .trigger_event_with_bubble(&EventType::KeyPress(key.code), ctx);
+                };
+                handle_key();
+
+                // Global listeners (triggered after bubbling)
+                self.trigger_global_listeners(&EventType::KeyPress(key.code), key);
+
+                // Forward to user
+                let _ = event_tx.try_send(Event::Key(key));
+            }
+            crossterm::event::Event::Mouse(mouse) => {
+                // Forward to user
+                let _ = event_tx.try_send(Event::Mouse(mouse.clone()));
+
+                // Handle click for focus
+                let MouseEventKind::Down(crossterm::event::MouseButton::Left) = mouse.kind else {
+                    // For non-click mouse events, we still want to dispatch to the element under the cursor
+                    self.dispatch_mouse_event(mouse);
+                    return;
+                };
+                let clicked_id = self.root.find_widget_at(mouse.column, mouse.row);
+
+                // Update focus
+                if clicked_id.as_ref() != self.focused_id.as_ref() {
+                    // Blur old
+                    if let Some(old_id) = self.focused_id.take() {
+                        let ctx = EventContext::new(EventType::Blur, &old_id);
+                        self.root.trigger_event_with_bubble(&EventType::Blur, ctx);
+                    }
+
+                    // Focus new (if clicked on a widget)
+                    if let Some(ref id) = clicked_id {
+                        self.focused_id = Some(id.clone());
+                        let ctx = EventContext::new(EventType::Focus, id)
+                            .with_mouse(mouse.column, mouse.row);
+                        self.root.trigger_event_with_bubble(&EventType::Focus, ctx);
+                    }
+                }
+
+                // Trigger click listeners with bubbling (if clicked on a widget)
+                if let Some(ref id) = clicked_id {
+                    let ctx =
+                        EventContext::new(EventType::Click, id).with_mouse(mouse.column, mouse.row);
+                    self.root.trigger_event_with_bubble(&EventType::Click, ctx);
+                }
+
+                // Dispatch to element under mouse
+                self.dispatch_mouse_event(mouse);
+            }
+            crossterm::event::Event::Resize(w, h) => {
+                // Forward to user
+                let _ = event_tx.try_send(Event::Resize(w, h));
+            }
+            _ => {}
         }
     }
 
