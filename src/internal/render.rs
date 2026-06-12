@@ -12,7 +12,7 @@ use std::{collections::HashMap, io};
 /// Trait for abstracting crossterm event polling, enabling mock event sources in tests.
 pub(crate) trait EventSource {
     fn poll(&mut self, timeout: std::time::Duration) -> io::Result<bool>;
-    fn read(&mut self) ->  io::Result<crossterm::event::Event>;
+    fn read(&mut self) -> io::Result<crossterm::event::Event>;
 }
 
 /// Production event source backed by crossterm.
