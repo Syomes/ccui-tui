@@ -2,6 +2,7 @@ mod render;
 
 use ratatui::layout::Size;
 use ratatui::widgets::StatefulWidget;
+pub(crate) use render::CrosstermEventSource;
 pub use render::RenderLoop;
 use tui_scrollview::{ScrollView, ScrollViewState, ScrollbarVisibility};
 

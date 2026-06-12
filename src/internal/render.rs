@@ -2,12 +2,30 @@ use crossterm::{
     ExecutableCommand,
     event::{DisableMouseCapture, EnableMouseCapture, KeyEvent, KeyModifiers, MouseEventKind},
 };
-use ratatui::{Terminal, backend::CrosstermBackend};
+use ratatui::{Terminal, backend::Backend};
 use tokio::sync::mpsc;
 
 use crate::event::{Event, EventContext, EventType, ListenerId, UiMessage};
 use crate::internal::Node;
-use std::collections::HashMap;
+use std::{collections::HashMap, io};
+
+/// Trait for abstracting crossterm event polling, enabling mock event sources in tests.
+pub(crate) trait EventSource {
+    fn poll(&mut self, timeout: std::time::Duration) -> io::Result<bool>;
+    fn read(&mut self) -> io::Result<crossterm::event::Event>;
+}
+
+/// Production event source backed by crossterm.
+pub(crate) struct CrosstermEventSource;
+
+impl EventSource for CrosstermEventSource {
+    fn poll(&mut self, timeout: std::time::Duration) -> io::Result<bool> {
+        crossterm::event::poll(timeout)
+    }
+    fn read(&mut self) -> io::Result<crossterm::event::Event> {
+        crossterm::event::read()
+    }
+}
 
 /// Internal render loop state.
 pub struct RenderLoop {
@@ -28,11 +46,17 @@ impl RenderLoop {
     }
 
     pub async fn run(
-        mut terminal: Terminal<CrosstermBackend<std::io::Stdout>>,
+        mut terminal: Terminal<impl Backend>,
         mut ui_rx: mpsc::Receiver<UiMessage>,
+        mut event_source: impl EventSource,
         event_tx: mpsc::Sender<Event>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut state = Self::new();
+
+        // tick function to yield the runtime
+        async fn tick() {
+            tokio::time::sleep(std::time::Duration::from_millis(0)).await;
+        }
 
         loop {
             // Render the tree
@@ -50,136 +74,134 @@ impl RenderLoop {
             while let Ok(msg) = ui_rx.try_recv() {
                 state.handle_ui_msg(msg);
             }
-
-            // Poll terminal events and dispatch
-            if let Ok(true) = crossterm::event::poll(std::time::Duration::ZERO) {
-                if let Ok(event) = crossterm::event::read() {
-                    match event {
-                        crossterm::event::Event::Key(key) => {
-                            // focused widget (if any)
-                            if let Some(ref focused_id) = state.focused_id {
-                                if let Some(node) = state.root.find_child_mut(focused_id) {
-                                    if let Some(widget) = &mut node.widget {
-                                        widget.handle_key(key);
-                                    }
-
-                                    // Trigger key press event listeners on the node with bubbling
-                                    let ctx = EventContext {
-                                        event_type: EventType::KeyPress(key.code),
-                                        target_id: focused_id.clone(),
-                                        current_target_id: focused_id.clone(),
-                                        mouse_x: None,
-                                        mouse_y: None,
-                                        scroll_delta: None,
-                                        key_code: Some(key.code),
-                                        propagation_stopped: false,
-                                    };
-                                    state.root.trigger_event_with_bubble(
-                                        &EventType::KeyPress(key.code),
-                                        ctx,
-                                    );
-                                }
-                            }
-
-                            // Global listeners (triggered after bubbling)
-                            state.trigger_global_listeners(&EventType::KeyPress(key.code), key);
-
-                            // Forward to user
-                            let _ = event_tx.try_send(Event::Key(key));
-                        }
-                        crossterm::event::Event::Mouse(mouse) => {
-                            // Forward to user
-                            let _ = event_tx.try_send(Event::Mouse(mouse.clone()));
-
-                            // Handle click for focus
-                            if mouse.kind
-                                == MouseEventKind::Down(crossterm::event::MouseButton::Left)
-                            {
-                                let clicked_id = state.root.find_widget_at(mouse.column, mouse.row);
-
-                                // Update focus
-                                if clicked_id.as_ref() != state.focused_id.as_ref() {
-                                    // Blur old
-                                    if let Some(old_id) = state.focused_id.take() {
-                                        let ctx = EventContext {
-                                            event_type: EventType::Blur,
-                                            target_id: old_id.clone(),
-                                            current_target_id: old_id.clone(),
-                                            mouse_x: None,
-                                            mouse_y: None,
-                                            scroll_delta: None,
-                                            key_code: None,
-                                            propagation_stopped: false,
-                                        };
-                                        state.root.trigger_event_with_bubble(&EventType::Blur, ctx);
-                                    }
-
-                                    // Focus new (if clicked on a widget)
-                                    if let Some(ref id) = clicked_id {
-                                        state.focused_id = Some(id.clone());
-                                        let ctx = EventContext {
-                                            event_type: EventType::Focus,
-                                            target_id: id.clone(),
-                                            current_target_id: id.clone(),
-                                            mouse_x: Some(mouse.column),
-                                            mouse_y: Some(mouse.row),
-                                            scroll_delta: None,
-                                            key_code: None,
-                                            propagation_stopped: false,
-                                        };
-                                        state
-                                            .root
-                                            .trigger_event_with_bubble(&EventType::Focus, ctx);
-                                    }
-                                }
-
-                                // Trigger click listeners with bubbling (if clicked on a widget)
-                                if let Some(ref id) = clicked_id {
-                                    let ctx = EventContext {
-                                        event_type: EventType::Click,
-                                        target_id: id.clone(),
-                                        current_target_id: id.clone(),
-                                        mouse_x: Some(mouse.column),
-                                        mouse_y: Some(mouse.row),
-                                        scroll_delta: None,
-                                        key_code: None,
-                                        propagation_stopped: false,
-                                    };
-                                    state.root.trigger_event_with_bubble(&EventType::Click, ctx);
-                                }
-                            }
-
-                            // Dispatch to element under mouse
-                            state.dispatch_mouse_event(mouse);
-                        }
-                        crossterm::event::Event::Resize(w, h) => {
-                            // Forward to user
-                            let _ = event_tx.try_send(Event::Resize(w, h));
-                        }
-                        _ => {}
-                    }
-                }
+            if ui_rx.is_closed() {
+                break Ok(());
             }
 
+            // Poll terminal events and dispatch
+            let Ok(true) = event_source.poll(std::time::Duration::ZERO) else {
+                tick().await;
+                continue;
+            };
+            let Ok(event) = event_source.read() else {
+                tick().await;
+                continue;
+            };
+
+            state = RenderLoop::handle_terminal_event(state, event, &event_tx);
+
             // TODO: add user-configurable FPS limit here
-            tokio::time::sleep(tokio::time::Duration::from_millis(0)).await;
+            tick().await;
         }
+    }
+
+    fn handle_key_event(
+        mut state: RenderLoop,
+        key: KeyEvent,
+        event_tx: &mpsc::Sender<Event>,
+    ) -> RenderLoop {
+        // First handle focus and bubbling for the focused widget
+        let handle_key = |mut state: RenderLoop| -> RenderLoop {
+            // focused widget (if any)
+            let Some(ref focused_id) = state.focused_id else {
+                return state;
+            };
+            let Some(node) = state.root.find_child_mut(focused_id) else {
+                return state;
+            };
+            if let Some(widget) = &mut node.widget {
+                widget.handle_key(key);
+            }
+
+            // Trigger key press event listeners on the node with bubbling
+            let ctx =
+                EventContext::new(EventType::KeyPress(key.code), focused_id).with_key(key.code);
+            state
+                .root
+                .trigger_event_with_bubble(&EventType::KeyPress(key.code), ctx);
+            return state;
+        };
+        state = handle_key(state);
+
+        // Global listeners (triggered after bubbling)
+        state.trigger_global_listeners(&EventType::KeyPress(key.code), key);
+
+        // Forward to user
+        let _ = event_tx.try_send(Event::Key(key));
+        return state;
+    }
+
+    fn handle_mouse_event(
+        mut state: RenderLoop,
+        mouse: crossterm::event::MouseEvent,
+        event_tx: &mpsc::Sender<Event>,
+    ) -> RenderLoop {
+        // Forward to user
+        let _ = event_tx.try_send(Event::Mouse(mouse.clone()));
+
+        // Handle click for focus
+        let MouseEventKind::Down(crossterm::event::MouseButton::Left) = mouse.kind else {
+            // For non-click mouse events, we still want to dispatch to the element under the cursor
+            state.dispatch_mouse_event(mouse);
+            return state;
+        };
+        let clicked_id = state.root.find_widget_at(mouse.column, mouse.row);
+
+        // Update focus
+        if clicked_id.as_ref() != state.focused_id.as_ref() {
+            // Blur old
+            if let Some(old_id) = state.focused_id.take() {
+                let ctx = EventContext::new(EventType::Blur, &old_id);
+                state.root.trigger_event_with_bubble(&EventType::Blur, ctx);
+            }
+
+            // Focus new (if clicked on a widget)
+            if let Some(ref id) = clicked_id {
+                state.focused_id = Some(id.clone());
+                let ctx =
+                    EventContext::new(EventType::Focus, id).with_mouse(mouse.column, mouse.row);
+                state.root.trigger_event_with_bubble(&EventType::Focus, ctx);
+            }
+        }
+
+        // Trigger click listeners with bubbling (if clicked on a widget)
+        if let Some(ref id) = clicked_id {
+            let ctx = EventContext::new(EventType::Click, id).with_mouse(mouse.column, mouse.row);
+            state.root.trigger_event_with_bubble(&EventType::Click, ctx);
+        }
+
+        // Dispatch to element under mouse
+        state.dispatch_mouse_event(mouse);
+
+        return state;
+    }
+
+    fn handle_terminal_event(
+        mut state: RenderLoop,
+        event: crossterm::event::Event,
+        event_tx: &mpsc::Sender<Event>,
+    ) -> RenderLoop {
+        match event {
+            crossterm::event::Event::Key(key) => {
+                state = RenderLoop::handle_key_event(state, key, event_tx);
+            }
+            crossterm::event::Event::Mouse(mouse) => {
+                state = RenderLoop::handle_mouse_event(state, mouse, event_tx);
+            }
+            crossterm::event::Event::Resize(w, h) => {
+                // Forward to user
+                let _ = event_tx.try_send(Event::Resize(w, h));
+            }
+            _ => {}
+        }
+        return state;
     }
 
     /// Trigger global listeners for an event type.
     fn trigger_global_listeners(&self, event_type: &EventType, key: KeyEvent) {
         if let Some(listeners) = self.global_listeners.get(event_type) {
             for (_, listener) in listeners {
-                let ctx = EventContext {
-                    event_type: event_type.clone(),
-                    target_id: String::from("global"),
-                    current_target_id: String::from("global"),
-                    mouse_x: None,
-                    mouse_y: None,
-                    scroll_delta: None,
-                    key_code: Some(key.code),
-                    propagation_stopped: false,
-                };
+                let ctx = EventContext::new(event_type.clone(), "global").with_key(key.code);
                 listener(ctx);
             }
         }
@@ -225,19 +247,14 @@ impl RenderLoop {
         let alt_pressed = mouse.modifiers.contains(KeyModifiers::ALT);
 
         // Build event context
-        let ctx = EventContext {
-            event_type: event_type.clone(),
-            target_id: target_id.clone(),
-            current_target_id: target_id.clone(),
-            mouse_x: Some(mouse.column),
-            mouse_y: Some(mouse.row),
-            scroll_delta: match mouse.kind {
-                MouseEventKind::ScrollUp => Some(1),
-                MouseEventKind::ScrollDown => Some(-1),
-                _ => None,
-            },
-            key_code: None,
-            propagation_stopped: false,
+        let ctx = {
+            let ctx = EventContext::new(event_type.clone(), &target_id)
+                .with_mouse(mouse.column, mouse.row);
+            match mouse.kind {
+                MouseEventKind::ScrollUp => ctx.with_scroll(1),
+                MouseEventKind::ScrollDown => ctx.with_scroll(-1),
+                _ => ctx,
+            }
         };
 
         // For scroll events, handle scroll state first, then bubble
@@ -334,5 +351,404 @@ impl RenderLoop {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::event::EventListener;
+    use crate::style::Style;
+    use crate::widget::Text;
+    use crossterm::event::{Event as CrosstermEvent, KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
+    struct MockEventSource {
+        events: Vec<CrosstermEvent>,
+        index: usize,
+    }
+
+    impl MockEventSource {
+        fn new(events: Vec<CrosstermEvent>) -> Self {
+            MockEventSource { events, index: 0 }
+        }
+    }
+
+    impl EventSource for MockEventSource {
+        fn poll(&mut self, _timeout: Duration) -> io::Result<bool> {
+            Ok(self.index < self.events.len())
+        }
+        fn read(&mut self) -> io::Result<CrosstermEvent> {
+            if self.index < self.events.len() {
+                let event = self.events[self.index].clone();
+                self.index += 1;
+                Ok(event)
+            } else {
+                Err(io::Error::new(io::ErrorKind::WouldBlock, "no more events"))
+            }
+        }
+    }
+
+    #[test]
+    fn test_new() {
+        let rl = RenderLoop::new();
+        assert_eq!(rl.root.id, "root");
+        assert!(rl.focused_id.is_none());
+        assert!(rl.global_listeners.is_empty());
+    }
+
+    #[test]
+    fn test_add_widget() {
+        let mut rl = RenderLoop::new();
+        rl.handle_ui_msg(UiMessage::AddWidget {
+            parent_id: "root".into(),
+            id: "w1".into(),
+            widget: Box::new(Text::new("hello")),
+            style: Style::new(),
+        });
+        assert!(rl.root.find_child("w1").is_some());
+    }
+
+    #[test]
+    fn test_add_and_remove_widget() {
+        let mut rl = RenderLoop::new();
+        rl.handle_ui_msg(UiMessage::AddWidget {
+            parent_id: "root".into(),
+            id: "w1".into(),
+            widget: Box::new(Text::new("hello")),
+            style: Style::new(),
+        });
+        assert_eq!(rl.root.children.len(), 1);
+        rl.handle_ui_msg(UiMessage::RemoveWidget("w1".into()));
+        assert_eq!(rl.root.children.len(), 0);
+    }
+
+    #[test]
+    fn test_add_container() {
+        let mut rl = RenderLoop::new();
+        rl.handle_ui_msg(UiMessage::AddContainer {
+            parent_id: "root".into(),
+            id: "c1".into(),
+            style: Style::new().column(),
+        });
+        let node = rl.root.find_child("c1");
+        assert!(node.is_some());
+        assert!(node.unwrap().widget.is_none());
+    }
+
+    #[test]
+    fn test_update_style() {
+        let mut rl = RenderLoop::new();
+        rl.handle_ui_msg(UiMessage::AddWidget {
+            parent_id: "root".into(),
+            id: "w1".into(),
+            widget: Box::new(Text::new("hello")),
+            style: Style::new(),
+        });
+        rl.handle_ui_msg(UiMessage::UpdateStyle {
+            id: "w1".into(),
+            style: Style::new().bg_color(crate::style::Color::Red),
+        });
+        let node = rl.root.find_child("w1").unwrap();
+        assert_eq!(node.style.bg_color, Some(crate::style::Color::Red));
+    }
+
+    #[test]
+    fn test_global_listener_fires() {
+        let mut rl = RenderLoop::new();
+        let fired = Arc::new(AtomicBool::new(false));
+        let f = fired.clone();
+        let listener: EventListener = Arc::new(move |_| {
+            f.store(true, Ordering::SeqCst);
+        });
+
+        rl.handle_ui_msg(UiMessage::AddGlobalListener {
+            event_type: EventType::KeyPress(KeyCode::Enter),
+            listener,
+            listener_id: ListenerId::new(),
+        });
+
+        rl.trigger_global_listeners(
+            &EventType::KeyPress(KeyCode::Enter),
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert!(fired.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_event_listener_on_widget() {
+        let mut rl = RenderLoop::new();
+        rl.handle_ui_msg(UiMessage::AddWidget {
+            parent_id: "root".into(),
+            id: "w1".into(),
+            widget: Box::new(Text::new("hello")),
+            style: Style::new(),
+        });
+
+        // Inject a Click event listener onto "w1" via handle_ui_msg
+        let fired = Arc::new(AtomicBool::new(false));
+        let f = fired.clone();
+        rl.handle_ui_msg(UiMessage::AddEventListener {
+            target_id: "w1".into(),
+            event_type: EventType::Click,
+            listener: Arc::new(move |_| {
+                f.store(true, Ordering::SeqCst);
+            }),
+            listener_id: ListenerId::new(),
+        });
+
+        // Simulate the exact block you selected: find widget at coords and trigger click
+        if rl.root.find_child_mut("w1").is_some() {
+            let ctx = EventContext::new(EventType::Click, "w1").with_mouse(0, 0);
+            rl.root.trigger_event_with_bubble(&EventType::Click, ctx);
+        }
+        assert!(fired.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_dispatch_hover_at_empty_area_no_panic() {
+        let mut rl = RenderLoop::new();
+        rl.dispatch_mouse_event(crossterm::event::MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 9999,
+            row: 9999,
+            modifiers: KeyModifiers::NONE,
+        });
+    }
+
+    #[test]
+    fn test_remove_nonexistent_no_panic() {
+        let mut rl = RenderLoop::new();
+        rl.handle_ui_msg(UiMessage::RemoveWidget("nope".into()));
+    }
+
+    #[test]
+    fn test_widget_message_to_nonexistent_no_panic() {
+        let mut rl = RenderLoop::new();
+        rl.handle_ui_msg(UiMessage::WidgetMessage {
+            id: "nope".into(),
+            message: Box::new(crate::widget::text::TextMessage::SetContent("x".into())),
+        });
+    }
+
+    #[test]
+    fn test_render_without_events() {
+        let backend = ratatui::backend::TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut rl = RenderLoop::new();
+
+        // Add a widget (no events involved)
+        rl.handle_ui_msg(UiMessage::AddWidget {
+            parent_id: "root".into(),
+            id: "w1".into(),
+            widget: Box::new(Text::new("Hello World")),
+            style: Style::new(),
+        });
+
+        // Render the tree directly
+        terminal
+            .draw(|f| {
+                let screen_area = f.area();
+                rl.root.layout(screen_area);
+                rl.root.render(f.buffer_mut(), None);
+            })
+            .unwrap();
+
+        // Verify buffer contains the rendered text
+        let buf = terminal.backend().buffer();
+        let has_hello = buf.content.iter().any(|c| c.symbol().contains("H"));
+        assert!(
+            has_hello,
+            "Buffer should contain 'Hello World' after rendering"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_run_exits_on_closed_channel() {
+        let backend = ratatui::backend::TestBackend::new(80, 24);
+        let terminal = Terminal::new(backend).unwrap();
+        let (ui_tx, ui_rx) = mpsc::channel(100);
+        let (_event_tx, _event_rx) = mpsc::channel(100);
+        let source = MockEventSource::new(vec![]);
+
+        let handle = tokio::spawn(async move {
+            RenderLoop::run(terminal, ui_rx, source, _event_tx)
+                .await
+                .unwrap();
+        });
+
+        // Give the loop a chance to start and poll once
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Drop sender to close the channel
+        drop(ui_tx);
+
+        // Should exit within timeout
+        tokio::time::timeout(Duration::from_secs(1), handle)
+            .await
+            .expect("run() did not exit after channel closed")
+            .expect("task panicked")
+    }
+
+    #[tokio::test]
+    async fn test_run_forwards_key_event() {
+        let backend = ratatui::backend::TestBackend::new(80, 24);
+        let terminal = Terminal::new(backend).unwrap();
+        let (ui_tx, ui_rx) = mpsc::channel(100);
+        let (event_tx, mut event_rx) = mpsc::channel(100);
+
+        let key = crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char('a'),
+            KeyModifiers::NONE,
+        );
+        let source = MockEventSource::new(vec![CrosstermEvent::Key(key)]);
+
+        let handle = tokio::spawn(async move {
+            RenderLoop::run(terminal, ui_rx, source, event_tx)
+                .await
+                .unwrap();
+        });
+
+        // Wait for event to be forwarded (recv blocks until event arrives)
+        let received = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
+            .await
+            .expect("timed out waiting for key event")
+            .expect("event channel closed");
+        match received {
+            Event::Key(k) => assert_eq!(k.code, crossterm::event::KeyCode::Char('a')),
+            _ => panic!("expected Key event"),
+        }
+
+        // Drop sender so loop exits
+        drop(ui_tx);
+
+        tokio::time::timeout(Duration::from_secs(1), handle)
+            .await
+            .expect("run() did not exit after channel closed")
+            .expect("task panicked")
+    }
+
+    #[tokio::test]
+    async fn test_run_forwards_mouse_event() {
+        let backend = ratatui::backend::TestBackend::new(80, 24);
+        let terminal = Terminal::new(backend).unwrap();
+        let (ui_tx, ui_rx) = mpsc::channel(100);
+        let (event_tx, mut event_rx) = mpsc::channel(100);
+
+        let mouse = crossterm::event::MouseEvent {
+            kind: MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            column: 10,
+            row: 10,
+            modifiers: KeyModifiers::NONE,
+        };
+        let source = MockEventSource::new(vec![CrosstermEvent::Mouse(mouse)]);
+
+        let handle = tokio::spawn(async move {
+            RenderLoop::run(terminal, ui_rx, source, event_tx)
+                .await
+                .unwrap();
+        });
+
+        let received = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
+            .await
+            .expect("timed out waiting for mouse event")
+            .expect("event channel closed");
+        match received {
+            Event::Mouse(m) => assert_eq!(m.column, 10),
+            _ => panic!("expected Mouse event"),
+        }
+
+        drop(ui_tx);
+
+        tokio::time::timeout(Duration::from_secs(1), handle)
+            .await
+            .expect("run() did not exit after channel closed")
+            .expect("task panicked")
+    }
+
+    #[tokio::test]
+    async fn test_run_forwards_resize_event() {
+        let backend = ratatui::backend::TestBackend::new(80, 24);
+        let terminal = Terminal::new(backend).unwrap();
+        let (ui_tx, ui_rx) = mpsc::channel(100);
+        let (event_tx, mut event_rx) = mpsc::channel(100);
+
+        let source = MockEventSource::new(vec![CrosstermEvent::Resize(100, 30)]);
+
+        let handle = tokio::spawn(async move {
+            RenderLoop::run(terminal, ui_rx, source, event_tx)
+                .await
+                .unwrap();
+        });
+
+        let received = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
+            .await
+            .expect("timed out waiting for resize event")
+            .expect("event channel closed");
+        match received {
+            Event::Resize(w, h) => {
+                assert_eq!(w, 100);
+                assert_eq!(h, 30);
+            }
+            _ => panic!("expected Resize event"),
+        }
+
+        drop(ui_tx);
+
+        tokio::time::timeout(Duration::from_secs(1), handle)
+            .await
+            .expect("run() did not exit after channel closed")
+            .expect("task panicked")
+    }
+
+    #[tokio::test]
+    async fn test_run_global_listener_fires() {
+        let backend = ratatui::backend::TestBackend::new(80, 24);
+        let terminal = Terminal::new(backend).unwrap();
+        let (ui_tx, ui_rx) = mpsc::channel(100);
+        let (_event_tx, _event_rx) = mpsc::channel(100);
+
+        let fired = Arc::new(AtomicBool::new(false));
+        let f = fired.clone();
+        let listener: EventListener = Arc::new(move |_| {
+            f.store(true, Ordering::SeqCst);
+        });
+        let listener_id = ListenerId::new();
+
+        // Send the AddGlobalListener before spawning run()
+        ui_tx
+            .try_send(UiMessage::AddGlobalListener {
+                event_type: EventType::KeyPress(KeyCode::Enter),
+                listener,
+                listener_id,
+            })
+            .unwrap();
+
+        let key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        let source = MockEventSource::new(vec![CrosstermEvent::Key(key)]);
+
+        let handle = tokio::spawn(async move {
+            RenderLoop::run(terminal, ui_rx, source, _event_tx)
+                .await
+                .unwrap();
+        });
+
+        // Wait for global listener to fire (poll with timeout)
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !fired.load(Ordering::SeqCst) {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .expect("timed out waiting for global listener to fire");
+
+        drop(ui_tx);
+
+        tokio::time::timeout(Duration::from_secs(1), handle)
+            .await
+            .expect("run() did not exit after channel closed")
+            .expect("task panicked")
     }
 }

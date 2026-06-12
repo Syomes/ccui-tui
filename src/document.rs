@@ -6,7 +6,7 @@ use crossterm::{
 use ratatui::{Terminal, backend::CrosstermBackend};
 use tokio::sync::mpsc;
 
-use crate::internal::RenderLoop;
+use crate::internal::{CrosstermEventSource, RenderLoop};
 use crate::style::Style;
 use crate::widget::Widget;
 use crate::{
@@ -344,7 +344,7 @@ impl Ui {
         let (event_tx, event_rx) = mpsc::channel(100);
 
         tokio::spawn(async move {
-            if let Err(e) = RenderLoop::run(terminal, ui_rx, event_tx).await {
+            if let Err(e) = RenderLoop::run(terminal, ui_rx, CrosstermEventSource, event_tx).await {
                 eprintln!("Render error: {}", e);
             }
         });
