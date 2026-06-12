@@ -131,6 +131,51 @@ impl RenderLoop {
         return state;
     }
 
+    fn handle_mouse_event(
+        mut state: RenderLoop,
+        mouse: crossterm::event::MouseEvent,
+        event_tx: &mpsc::Sender<Event>,
+    ) -> RenderLoop {
+        // Forward to user
+        let _ = event_tx.try_send(Event::Mouse(mouse.clone()));
+
+        // Handle click for focus
+        let MouseEventKind::Down(crossterm::event::MouseButton::Left) = mouse.kind else {
+            // For non-click mouse events, we still want to dispatch to the element under the cursor
+            state.dispatch_mouse_event(mouse);
+            return state;
+        };
+        let clicked_id = state.root.find_widget_at(mouse.column, mouse.row);
+
+        // Update focus
+        if clicked_id.as_ref() != state.focused_id.as_ref() {
+            // Blur old
+            if let Some(old_id) = state.focused_id.take() {
+                let ctx = EventContext::new(EventType::Blur, &old_id);
+                state.root.trigger_event_with_bubble(&EventType::Blur, ctx);
+            }
+
+            // Focus new (if clicked on a widget)
+            if let Some(ref id) = clicked_id {
+                state.focused_id = Some(id.clone());
+                let ctx =
+                    EventContext::new(EventType::Focus, id).with_mouse(mouse.column, mouse.row);
+                state.root.trigger_event_with_bubble(&EventType::Focus, ctx);
+            }
+        }
+
+        // Trigger click listeners with bubbling (if clicked on a widget)
+        if let Some(ref id) = clicked_id {
+            let ctx = EventContext::new(EventType::Click, id).with_mouse(mouse.column, mouse.row);
+            state.root.trigger_event_with_bubble(&EventType::Click, ctx);
+        }
+
+        // Dispatch to element under mouse
+        state.dispatch_mouse_event(mouse);
+
+        return state;
+    }
+
     fn handle_terminal_event(
         mut state: RenderLoop,
         event: crossterm::event::Event,
@@ -138,46 +183,10 @@ impl RenderLoop {
     ) -> RenderLoop {
         match event {
             crossterm::event::Event::Key(key) => {
-                state=RenderLoop::handle_key_event(state, key, event_tx);
+                state = RenderLoop::handle_key_event(state, key, event_tx);
             }
             crossterm::event::Event::Mouse(mouse) => {
-                // Forward to user
-                let _ = event_tx.try_send(Event::Mouse(mouse.clone()));
-
-                // Handle click for focus
-                let MouseEventKind::Down(crossterm::event::MouseButton::Left) = mouse.kind else {
-                    // For non-click mouse events, we still want to dispatch to the element under the cursor
-                    state.dispatch_mouse_event(mouse);
-                    return state;
-                };
-                let clicked_id = state.root.find_widget_at(mouse.column, mouse.row);
-
-                // Update focus
-                if clicked_id.as_ref() != state.focused_id.as_ref() {
-                    // Blur old
-                    if let Some(old_id) = state.focused_id.take() {
-                        let ctx = EventContext::new(EventType::Blur, &old_id);
-                        state.root.trigger_event_with_bubble(&EventType::Blur, ctx);
-                    }
-
-                    // Focus new (if clicked on a widget)
-                    if let Some(ref id) = clicked_id {
-                        state.focused_id = Some(id.clone());
-                        let ctx = EventContext::new(EventType::Focus, id)
-                            .with_mouse(mouse.column, mouse.row);
-                        state.root.trigger_event_with_bubble(&EventType::Focus, ctx);
-                    }
-                }
-
-                // Trigger click listeners with bubbling (if clicked on a widget)
-                if let Some(ref id) = clicked_id {
-                    let ctx =
-                        EventContext::new(EventType::Click, id).with_mouse(mouse.column, mouse.row);
-                    state.root.trigger_event_with_bubble(&EventType::Click, ctx);
-                }
-
-                // Dispatch to element under mouse
-                state.dispatch_mouse_event(mouse);
+                state = RenderLoop::handle_mouse_event(state, mouse, event_tx);
             }
             crossterm::event::Event::Resize(w, h) => {
                 // Forward to user
