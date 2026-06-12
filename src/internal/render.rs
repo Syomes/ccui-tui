@@ -53,7 +53,7 @@ impl RenderLoop {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut state = Self::new();
 
-        // tick function to yield the run time
+        // tick function to yield the runtime
         async fn tick() {
             tokio::time::sleep(std::time::Duration::from_millis(0)).await;
         }
