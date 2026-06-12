@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 
 use crate::event::{Event, EventContext, EventType, ListenerId, UiMessage};
 use crate::internal::Node;
-use std::{collections::HashMap, io};
+use std::{alloc::handle_alloc_error, collections::HashMap, io};
 
 /// Trait for abstracting crossterm event polling, enabling mock event sources in tests.
 pub(crate) trait EventSource {
@@ -88,46 +88,57 @@ impl RenderLoop {
                 continue;
             };
 
-            state.handle_terminal_event(event, &event_tx);
+            state = RenderLoop::handle_terminal_event(state, event, &event_tx);
 
             // TODO: add user-configurable FPS limit here
             tick().await;
         }
     }
 
+    fn handle_key_event(
+        mut state: RenderLoop,
+        key: KeyEvent,
+        event_tx: &mpsc::Sender<Event>,
+    ) -> RenderLoop {
+        // First handle focus and bubbling for the focused widget
+        let handle_key = |mut state: RenderLoop| -> RenderLoop {
+            // focused widget (if any)
+            let Some(ref focused_id) = state.focused_id else {
+                return state;
+            };
+            let Some(node) = state.root.find_child_mut(focused_id) else {
+                return state;
+            };
+            if let Some(widget) = &mut node.widget {
+                widget.handle_key(key);
+            }
+
+            // Trigger key press event listeners on the node with bubbling
+            let ctx =
+                EventContext::new(EventType::KeyPress(key.code), focused_id).with_key(key.code);
+            state
+                .root
+                .trigger_event_with_bubble(&EventType::KeyPress(key.code), ctx);
+            return state;
+        };
+        state = handle_key(state);
+
+        // Global listeners (triggered after bubbling)
+        state.trigger_global_listeners(&EventType::KeyPress(key.code), key);
+
+        // Forward to user
+        let _ = event_tx.try_send(Event::Key(key));
+        return state;
+    }
+
     fn handle_terminal_event(
-        &mut self,
+        mut state: RenderLoop,
         event: crossterm::event::Event,
         event_tx: &mpsc::Sender<Event>,
-    ) {
+    ) -> RenderLoop {
         match event {
             crossterm::event::Event::Key(key) => {
-                // First handle focus and bubbling for the focused widget
-                let mut handle_key = || {
-                    // focused widget (if any)
-                    let Some(ref focused_id) = self.focused_id else {
-                        return;
-                    };
-                    let Some(node) = self.root.find_child_mut(focused_id) else {
-                        return;
-                    };
-                    if let Some(widget) = &mut node.widget {
-                        widget.handle_key(key);
-                    }
-
-                    // Trigger key press event listeners on the node with bubbling
-                    let ctx = EventContext::new(EventType::KeyPress(key.code), focused_id)
-                        .with_key(key.code);
-                    self.root
-                        .trigger_event_with_bubble(&EventType::KeyPress(key.code), ctx);
-                };
-                handle_key();
-
-                // Global listeners (triggered after bubbling)
-                self.trigger_global_listeners(&EventType::KeyPress(key.code), key);
-
-                // Forward to user
-                let _ = event_tx.try_send(Event::Key(key));
+                state=RenderLoop::handle_key_event(state, key, event_tx);
             }
             crossterm::event::Event::Mouse(mouse) => {
                 // Forward to user
@@ -136,25 +147,25 @@ impl RenderLoop {
                 // Handle click for focus
                 let MouseEventKind::Down(crossterm::event::MouseButton::Left) = mouse.kind else {
                     // For non-click mouse events, we still want to dispatch to the element under the cursor
-                    self.dispatch_mouse_event(mouse);
-                    return;
+                    state.dispatch_mouse_event(mouse);
+                    return state;
                 };
-                let clicked_id = self.root.find_widget_at(mouse.column, mouse.row);
+                let clicked_id = state.root.find_widget_at(mouse.column, mouse.row);
 
                 // Update focus
-                if clicked_id.as_ref() != self.focused_id.as_ref() {
+                if clicked_id.as_ref() != state.focused_id.as_ref() {
                     // Blur old
-                    if let Some(old_id) = self.focused_id.take() {
+                    if let Some(old_id) = state.focused_id.take() {
                         let ctx = EventContext::new(EventType::Blur, &old_id);
-                        self.root.trigger_event_with_bubble(&EventType::Blur, ctx);
+                        state.root.trigger_event_with_bubble(&EventType::Blur, ctx);
                     }
 
                     // Focus new (if clicked on a widget)
                     if let Some(ref id) = clicked_id {
-                        self.focused_id = Some(id.clone());
+                        state.focused_id = Some(id.clone());
                         let ctx = EventContext::new(EventType::Focus, id)
                             .with_mouse(mouse.column, mouse.row);
-                        self.root.trigger_event_with_bubble(&EventType::Focus, ctx);
+                        state.root.trigger_event_with_bubble(&EventType::Focus, ctx);
                     }
                 }
 
@@ -162,11 +173,11 @@ impl RenderLoop {
                 if let Some(ref id) = clicked_id {
                     let ctx =
                         EventContext::new(EventType::Click, id).with_mouse(mouse.column, mouse.row);
-                    self.root.trigger_event_with_bubble(&EventType::Click, ctx);
+                    state.root.trigger_event_with_bubble(&EventType::Click, ctx);
                 }
 
                 // Dispatch to element under mouse
-                self.dispatch_mouse_event(mouse);
+                state.dispatch_mouse_event(mouse);
             }
             crossterm::event::Event::Resize(w, h) => {
                 // Forward to user
@@ -174,6 +185,7 @@ impl RenderLoop {
             }
             _ => {}
         }
+        return state;
     }
 
     /// Trigger global listeners for an event type.
@@ -510,6 +522,38 @@ mod tests {
             id: "nope".into(),
             message: Box::new(crate::widget::text::TextMessage::SetContent("x".into())),
         });
+    }
+
+    #[test]
+    fn test_render_without_events() {
+        let backend = ratatui::backend::TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut rl = RenderLoop::new();
+
+        // Add a widget (no events involved)
+        rl.handle_ui_msg(UiMessage::AddWidget {
+            parent_id: "root".into(),
+            id: "w1".into(),
+            widget: Box::new(Text::new("Hello World")),
+            style: Style::new(),
+        });
+
+        // Render the tree directly
+        terminal
+            .draw(|f| {
+                let screen_area = f.area();
+                rl.root.layout(screen_area);
+                rl.root.render(f.buffer_mut(), None);
+            })
+            .unwrap();
+
+        // Verify buffer contains the rendered text
+        let buf = terminal.backend().buffer();
+        let has_hello = buf.content.iter().any(|c| c.symbol().contains("H"));
+        assert!(
+            has_hello,
+            "Buffer should contain 'Hello World' after rendering"
+        );
     }
 
     #[tokio::test]
