@@ -576,7 +576,7 @@ mod tests {
         let handle = tokio::spawn(async move {
             RenderLoop::run(terminal, ui_rx, source, _event_tx)
                 .await
-                .ok();
+                .unwrap();
         });
 
         // Give the loop a chance to start and poll once
@@ -589,7 +589,7 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(1), handle)
             .await
             .expect("run() did not exit after channel closed")
-            .ok();
+            .expect("task panicked")
     }
 
     #[tokio::test]
@@ -605,18 +605,14 @@ mod tests {
         );
         let source = MockEventSource::new(vec![CrosstermEvent::Key(key)]);
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             RenderLoop::run(terminal, ui_rx, source, event_tx)
                 .await
-                .ok();
+                .unwrap();
         });
 
         // Wait for event to be processed
         tokio::time::sleep(Duration::from_millis(100)).await;
-
-        // Drop sender so loop exits
-        drop(ui_tx);
-        tokio::time::sleep(Duration::from_millis(50)).await;
 
         // Verify key was forwarded
         let received = event_rx.try_recv().unwrap();
@@ -624,6 +620,14 @@ mod tests {
             Event::Key(k) => assert_eq!(k.code, crossterm::event::KeyCode::Char('a')),
             _ => panic!("expected Key event"),
         }
+
+        // Drop sender so loop exits
+        drop(ui_tx);
+
+        tokio::time::timeout(Duration::from_secs(1), handle)
+            .await
+            .expect("run() did not exit after channel closed")
+            .expect("task panicked")
     }
 
     #[tokio::test]
@@ -641,21 +645,26 @@ mod tests {
         };
         let source = MockEventSource::new(vec![CrosstermEvent::Mouse(mouse)]);
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             RenderLoop::run(terminal, ui_rx, source, event_tx)
                 .await
-                .ok();
+                .unwrap();
         });
 
         tokio::time::sleep(Duration::from_millis(100)).await;
-        drop(ui_tx);
-        tokio::time::sleep(Duration::from_millis(50)).await;
 
         let received = event_rx.try_recv().unwrap();
         match received {
             Event::Mouse(m) => assert_eq!(m.column, 10),
             _ => panic!("expected Mouse event"),
         }
+
+        drop(ui_tx);
+
+        tokio::time::timeout(Duration::from_secs(1), handle)
+            .await
+            .expect("run() did not exit after channel closed")
+            .expect("task panicked")
     }
 
     #[tokio::test]
@@ -667,15 +676,13 @@ mod tests {
 
         let source = MockEventSource::new(vec![CrosstermEvent::Resize(100, 30)]);
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             RenderLoop::run(terminal, ui_rx, source, event_tx)
                 .await
-                .ok();
+                .unwrap();
         });
 
         tokio::time::sleep(Duration::from_millis(100)).await;
-        drop(ui_tx);
-        tokio::time::sleep(Duration::from_millis(50)).await;
 
         let received = event_rx.try_recv().unwrap();
         match received {
@@ -685,6 +692,13 @@ mod tests {
             }
             _ => panic!("expected Resize event"),
         }
+
+        drop(ui_tx);
+
+        tokio::time::timeout(Duration::from_secs(1), handle)
+            .await
+            .expect("run() did not exit after channel closed")
+            .expect("task panicked")
     }
 
     #[tokio::test]
@@ -713,16 +727,21 @@ mod tests {
         let key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
         let source = MockEventSource::new(vec![CrosstermEvent::Key(key)]);
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             RenderLoop::run(terminal, ui_rx, source, _event_tx)
                 .await
-                .ok();
+                .unwrap();
         });
 
         tokio::time::sleep(Duration::from_millis(100)).await;
-        drop(ui_tx);
-        tokio::time::sleep(Duration::from_millis(50)).await;
 
         assert!(fired.load(Ordering::SeqCst));
+
+        drop(ui_tx);
+
+        tokio::time::timeout(Duration::from_secs(1), handle)
+            .await
+            .expect("run() did not exit after channel closed")
+            .expect("task panicked")
     }
 }
