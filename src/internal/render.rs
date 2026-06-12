@@ -611,11 +611,11 @@ mod tests {
                 .unwrap();
         });
 
-        // Wait for event to be processed
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        // Verify key was forwarded
-        let received = event_rx.try_recv().unwrap();
+        // Wait for event to be forwarded (recv blocks until event arrives)
+        let received = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
+            .await
+            .expect("timed out waiting for key event")
+            .expect("event channel closed");
         match received {
             Event::Key(k) => assert_eq!(k.code, crossterm::event::KeyCode::Char('a')),
             _ => panic!("expected Key event"),
@@ -651,9 +651,10 @@ mod tests {
                 .unwrap();
         });
 
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        let received = event_rx.try_recv().unwrap();
+        let received = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
+            .await
+            .expect("timed out waiting for mouse event")
+            .expect("event channel closed");
         match received {
             Event::Mouse(m) => assert_eq!(m.column, 10),
             _ => panic!("expected Mouse event"),
@@ -682,9 +683,10 @@ mod tests {
                 .unwrap();
         });
 
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        let received = event_rx.try_recv().unwrap();
+        let received = tokio::time::timeout(Duration::from_secs(1), event_rx.recv())
+            .await
+            .expect("timed out waiting for resize event")
+            .expect("event channel closed");
         match received {
             Event::Resize(w, h) => {
                 assert_eq!(w, 100);
@@ -733,9 +735,14 @@ mod tests {
                 .unwrap();
         });
 
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        assert!(fired.load(Ordering::SeqCst));
+        // Wait for global listener to fire (poll with timeout)
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !fired.load(Ordering::SeqCst) {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .expect("timed out waiting for global listener to fire");
 
         drop(ui_tx);
 
