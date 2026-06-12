@@ -79,10 +79,11 @@ impl RenderLoop {
             }
 
             // Poll terminal events and dispatch
-            let (Ok(true), Ok(event)) = (
-                event_source.poll(std::time::Duration::ZERO),
-                event_source.read(),
-            ) else {
+            let Ok(true) = event_source.poll(std::time::Duration::ZERO) else {
+                tick().await;
+                continue;
+            };
+            let Ok(event) = event_source.read() else {
                 tick().await;
                 continue;
             };
